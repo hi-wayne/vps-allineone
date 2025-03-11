@@ -1,0 +1,15 @@
+[Unit]
+Description=H2 Server
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/data/hysteria
+ExecStart=/data/hysteria/hysteria-linux-amd64 server -c /data/hysteria/server.yaml
+Restart=on-failure
+RestartSec=42s
+LimitNOFILE=1048576
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target
