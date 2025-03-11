@@ -1,0 +1,20 @@
+listen: :443
+
+acme:
+  domains:
+    - domain.com
+  email: 
+
+auth:
+  type: password
+  password: demopwd
+
+masquerade:
+  listenHTTPS: :443
+  forceHTTPS: true
+  type: string
+  string:
+    statusCode: 404
+    headers:
+      content-type: text/plain
+    content: 404

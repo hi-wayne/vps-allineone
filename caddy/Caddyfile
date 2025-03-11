@@ -1,0 +1,41 @@
+{
+	order forward_proxy before file_server
+}
+
+
+:80 {
+        header server "Nginx-1.1"
+}
+
+
+:8443, domain.com:8443 {
+        header server "Nginx-1.1"
+        header -etag
+
+        root * /var/www/html
+        file_server
+
+        handle_errors {
+                rewrite * /error.html
+                file_server
+        }
+
+	log {
+		#output file /data/log/caddy/access.log
+		output discard
+		level ERROR
+	}
+
+        route {
+		#reverse_proxy https://zozo.jp {
+	        # 	header_up Host {upstream_hostport}
+		#}
+
+                forward_proxy {
+                        basic_auth user authtoken 
+                        hide_ip
+                        hide_via
+                        probe_resistance
+                }
+        }
+}
