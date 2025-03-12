@@ -14,8 +14,9 @@ cp /data/hysteria/h2server.service /etc/systemd/system/h2server.service
 
 
 step2 修改配置文件和添加解析    
-修改/data/caddy/Caddyfile文件中domain.com和basic_auth部分，其中domain.com改为自己持有的一个域名并且解析到vps，caddy会自动通过acme letsencrypt生产https证书,端口8443也可以按自己要求修改  
-修改/data/hysteria/server.yaml中domain.com和password两个部分，端口443你也可以按要求修改，域名名也需要解析到这个vps  
+修改/data/caddy/Caddyfile文件中domain.com和basic_auth部分，其中domain.com改为自己持有的一个域名并且解析到vps的公网地址(如果你的vps有ipv6可以给机器分别设置a和aaaa两个域名)，basic_auth部分的user和authtoken替换成你要的用户和密码，caddy会自动通过acme letsencrypt生产https证书,端口8443也可以按自己要求修改  
+
+修改/data/hysteria/server.yaml中domain.com和password两个部分，端口443你也可以按要求修改，域名也需要解析到这个vps的公网地址  
 一台机器可以用通一个域名支持caddy h2和hystera2两种协议然后分别工作在不同端口   
 
 
