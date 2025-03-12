@@ -31,10 +31,16 @@ btw:
 查看运行状态   
 systemctl status caddy   
 systemctl status h2server    
-如果发现状态不正常关闭服务后手动拉起服务看看输出日志  
-关闭服务   
+如果发现状态不正常关闭服务后手动拉起服务看看输出日志   
 systemctl stop caddy   
 systemctl stop h2server    
 手动拉起   
 /data/caddy/caddy run --config /data/caddy/Caddyfile  
 /data/hysteria/hysteria-linux-amd64 server -c /data/hysteria/server.yaml  
+
+vps推荐  
+dmit premium网络带cn2优化， eyeball带cmin2 优化  
+邀请注册。
+https://www.dmit.io/aff.php?aff=12025 
+
+
