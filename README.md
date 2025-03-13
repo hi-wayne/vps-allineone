@@ -40,6 +40,9 @@ vim /data/h2client/client.yaml
 systemctl daemon-reload   
 systemctl enable h2client  
 systemctl restart h2client  
+不方便安装h2 client的设备可以在chrome上安装创建使用socket5进行分流代理。 
+插件推荐  
+https://chromewebstore.google.com/detail/proxy-switchyomega-3-zero/pfnededegaaopdmhkdmcofjmoldfiped?hl=zh-CN   
 
 
 ## btw:     
