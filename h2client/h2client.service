@@ -1,0 +1,16 @@
+[Unit]
+Description=H2 Client
+After=network.target
+
+[Service]
+User=hysteria
+WorkingDirectory=/data/h2client
+#ExecStartPre=/data/h2client/apply.sh
+ExecStart=/data/h2client/h2 client -c /data/h2client/client.yaml
+Restart=on-failure
+RestartSec=42s
+LimitNOFILE=1048576
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target

@@ -2,12 +2,12 @@ listen: :443
 
 acme:
   domains:
-    - domain.com
+    - 此处替换成你指向vps的域名
   email: 
 
 auth:
   type: password
-  password: demopwd
+  password: 此处替换为你客户端链接配置的密码 
 
 masquerade:
   listenHTTPS: :443

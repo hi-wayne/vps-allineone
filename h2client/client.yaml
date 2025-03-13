@@ -1,0 +1,20 @@
+server: h2服务的域名:h2的端口
+
+auth: h2服务配置的密码
+
+#bandwidth:
+  #up: 10 mbps
+  #down: 30 mbps
+
+#在本机提供服务对应的sockes5和http代理
+socks5:
+  listen: :1080
+
+http:
+  listen: :2080
+
+tcpTProxy:
+    listen: 127.0.0.1:2500
+
+udpTProxy:
+    listen: 127.0.0.1:2500

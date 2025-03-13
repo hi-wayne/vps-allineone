@@ -7,11 +7,12 @@
         header server "Nginx-1.1"
 }
 
-
-:8443, domain.com:8443 {
+#此处8443端口你可以根据需要替换
+:8443, 替换成你指向这台机器的域名:8443 {
         header server "Nginx-1.1"
         header -etag
 
+	#如果需要可以在系统/var/www/html下创建index.html和error.html进行伪装
         root * /var/www/html
         file_server
 
@@ -27,12 +28,8 @@
 	}
 
         route {
-		#reverse_proxy https://zozo.jp {
-	        # 	header_up Host {upstream_hostport}
-		#}
-
                 forward_proxy {
-                        basic_auth user authtoken 
+                        basic_auth 替换成客户端需要链接设定的用户名 替换成客户端链接设定的密码 
                         hide_ip
                         hide_via
                         probe_resistance
