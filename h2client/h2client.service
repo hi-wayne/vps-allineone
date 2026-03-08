@@ -1,0 +1,15 @@
+[Unit]
+Description=H2 Client
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/data/h2client
+ExecStart=/data/h2client/h2 client -c /data/h2client/client.yaml
+Restart=on-failure
+RestartSec=42s
+LimitNOFILE=1048576
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target

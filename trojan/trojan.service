@@ -1,0 +1,16 @@
+[Unit]
+Description=Trojan-go Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/data/trojan
+ExecStart=/data/trojan/trojan-go -config /data/trojan/server.json
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
