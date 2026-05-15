@@ -155,6 +155,7 @@ _guess_proto() {
     v2ray)          echo "V2Ray（多协议代理）" ;;
     sing-box)       echo "sing-box（多协议代理）" ;;
     ss-server|shadowsocks*) echo "Shadowsocks" ;;
+    mita)           echo "Mieru (mita 服务端)" ;;
     frps|frpc)      echo "FRP 内网穿透" ;;
     docker-proxy)   echo "Docker 端口映射" ;;
     openvpn)        echo "OpenVPN" ;;
@@ -180,16 +181,47 @@ port_in_use() {
   fi
 }
 
+# ─── 端口认领注册表（本次安装跨服务冲突检测） ────────────────────────────────
+CLAIMED_PORTS=()   # 条目格式: "port/proto=ServiceName"
+
+_claim_port() {
+  CLAIMED_PORTS+=("${1}/${2:-tcp}=${3}")
+}
+
+_unclaim_port() {
+  local key="${1}/${2:-tcp}" entry new_arr=()
+  for entry in ${CLAIMED_PORTS[@]+"${CLAIMED_PORTS[@]}"}; do
+    [[ "${entry%%=*}" != "$key" ]] && new_arr+=("$entry")
+  done
+  CLAIMED_PORTS=(${new_arr[@]+"${new_arr[@]}"})
+}
+
+# 若端口已被本次安装认领，返回 0 并输出占用方名称；否则返回 1
+port_claimed_by() {
+  local key="${1}/${2:-tcp}" entry
+  for entry in ${CLAIMED_PORTS[@]+"${CLAIMED_PORTS[@]}"}; do
+    if [[ "${entry%%=*}" == "$key" ]]; then
+      echo "${entry##*=}"; return 0
+    fi
+  done
+  return 1
+}
+
 # 检查端口，打印占用详情。返回 0=空闲，1=占用
+# 同时检测：① 本次安装已认领的端口  ② 系统当前已监听的端口
 check_port_smart() {
-  local port="$1" proto="${2:-tcp}"
+  local port="$1" proto="${2:-tcp}" claimant
+  claimant="$(port_claimed_by "$port" "$proto")"
+  if [[ -n "$claimant" ]]; then
+    echo "  警告：${proto^^} 端口 ${port} 已被本次安装的「${claimant}」占用"
+    return 1
+  fi
   if port_in_use "$port" "$proto"; then
     local pid proc proto_guess msg
     pid="$(_port_pid "$port" "$proto")"
     proc=""
     [[ -n "$pid" ]] && proc="$(cat /proc/"$pid"/comm 2>/dev/null | tr -d '\n' || true)"
     proto_guess="$(_guess_proto "$proc")"
-
     msg="  警告：${proto^^} 端口 ${port} 已被占用"
     if [[ -n "$proc" ]]; then
       msg+="（进程: ${proc}"
@@ -200,6 +232,41 @@ check_port_smart() {
     return 1
   fi
   return 0
+}
+
+# 交互式端口提示，发现冲突时循环让用户重新输入，成功后认领端口。
+# 用法: ask_port VAR_NAME "服务描述" 默认端口 [tcp|udp]
+ask_port() {
+  local var_name="$1" svc_desc="$2" default_port="$3" proto="${4:-tcp}"
+  local port claimant pid proc guess
+  while true; do
+    read -r -p "  ${svc_desc}（${proto^^}）[${default_port}]: " port
+    port="${port:-$default_port}"
+
+    # 检查本次安装已认领的端口
+    claimant="$(port_claimed_by "$port" "$proto")"
+    if [[ -n "$claimant" ]]; then
+      echo "  冲突：${proto^^} 端口 ${port} 已被本次安装的「${claimant}」占用，请重新输入。"
+      continue
+    fi
+
+    # 检查系统当前监听的端口
+    if port_in_use "$port" "$proto"; then
+      pid="$(_port_pid "$port" "$proto")"
+      proc=""; [[ -n "$pid" ]] && proc="$(cat /proc/"$pid"/comm 2>/dev/null | tr -d '\n' || true)"
+      guess="$(_guess_proto "$proc")"
+      if [[ -n "$proc" ]]; then
+        echo "  冲突：${proto^^} 端口 ${port} 已被进程「${proc}${guess:+（${guess}）}」占用，请重新输入。"
+      else
+        echo "  冲突：${proto^^} 端口 ${port} 已被占用，请重新输入。"
+      fi
+      continue
+    fi
+
+    break
+  done
+  printf -v "$var_name" '%s' "$port"
+  _claim_port "$port" "$proto" "$svc_desc"
 }
 
 # ─── ACME 证书策略协调 ───────────────────────────────────────────────────────
@@ -558,6 +625,23 @@ scan_installed_proxies() {
     _scan_row "3x-ui/x-ui" "$st" "Web面板(Xray)" "${port:+:${port}/TCP}" "多协议管理面板"
   fi
 
+  # ── Mieru (mita) ────────────────────────────────────────────────────────
+  st="$(_scan_svc_status mita)"
+  if [ -n "$st" ] || have_cmd mita || [ -x /data/mieru/mita ]; then
+    [ -z "$st" ] && st="已安装"
+    port=""
+    mita_bin=""
+    [ -x /data/mieru/mita ] && mita_bin="/data/mieru/mita"
+    have_cmd mita && mita_bin="mita"
+    if [ -n "$mita_bin" ]; then
+      port=$("$mita_bin" describe config 2>/dev/null \
+             | grep -oP '"port"\s*:\s*\K[0-9]+' | head -1 || true)
+    fi
+    _scan_row "Mieru (mita)" "$st" "Mieru/TCP" "${port:+:${port}/TCP}" "-"
+  else
+    _scan_row "Mieru (mita)" "未安装" "Mieru/TCP" "" ""
+  fi
+
   # ── H2 Client ───────────────────────────────────────────────────────────
   st="$(_scan_svc_status h2client)"
   if [ -n "$st" ] || [ -x /data/h2client/h2 ] || [ -f /data/h2client/client.yaml ]; then
@@ -625,6 +709,7 @@ H2_LOCAL_BIN="${ROOT_DIR}/hysteria/hysteria-linux-${ARCH}"
 TROJAN_LOCAL_BIN="${ROOT_DIR}/trojan/trojan-go-linux-${ARCH}"
 XRAY_LOCAL_BIN="${ROOT_DIR}/xray/xray-linux-${ARCH}"
 H2C_LOCAL_BIN="${ROOT_DIR}/h2client/h2-linux-${ARCH}"
+MIERU_LOCAL_BIN="${ROOT_DIR}/mieru/mita-linux-${ARCH}"
 
 # ─── 欢迎界面 ────────────────────────────────────────────────────────────────
 echo ""
@@ -649,6 +734,8 @@ echo "组件可用性检测："
                               || echo "  [缺包] VLESS Reality (Xray) — 未找到 xray-linux-${ARCH}"
 [[ -f "$H2C_LOCAL_BIN"    ]] && echo "  [可用] H2 Client             h2-linux-${ARCH}" \
                               || echo "  [缺包] H2 Client           — 未找到 h2-linux-${ARCH}"
+[[ -f "$MIERU_LOCAL_BIN"  ]] && echo "  [可用] Mieru (mita)          mita-linux-${ARCH}" \
+                              || echo "  [缺包] Mieru (mita)        — 未找到 mita-linux-${ARCH}"
 echo ""
 
 # ─── 组件选择（仅有包的组件才询问） ─────────────────────────────────────────
@@ -657,39 +744,59 @@ INSTALL_HYSTERIA="no"
 INSTALL_TROJAN="no"
 INSTALL_XRAY="no"
 INSTALL_H2CLIENT="no"
+INSTALL_MIERU="no"
 
 echo "请选择要安装的组件："
+echo ""
+echo "  协议说明："
+printf "  %-28s %-12s %-8s %-10s %s\n" "组件" "传输协议" "默认端口" "需要域名/证书" "备注"
+printf "  %s\n" "───────────────────────────────────────────────────────────────────────────"
+printf "  %-28s %-12s %-8s %-10s %s\n" "Caddy (NaiveProxy)"    "HTTPS/TCP"  "8443"   "✔ 需要"   "ACME 自动申请证书"
+printf "  %-28s %-12s %-8s %-10s %s\n" "Hysteria2"             "QUIC/UDP"   "443"    "✔ 需要"   "ACME 自动申请证书"
+printf "  %-28s %-12s %-8s %-10s %s\n" "Trojan"                "TLS/TCP"    "8080"   "✔ 需要"   "ACME 自动申请证书"
+printf "  %-28s %-12s %-8s %-10s %s\n" "VLESS Reality (Xray)"  "TCP"        "443"    "✘ 不需要" "自生成密钥对，伪装真实站点"
+printf "  %-28s %-12s %-8s %-10s %s\n" "Mieru (mita)"          "TCP"        "443"    "✘ 不需要" "协议自带加密，直接用 IP"
+printf "  %-28s %-12s %-8s %-10s %s\n" "H2 Client"             "QUIC/UDP"   "—"      "—"        "本地 Hysteria2 客户端"
+printf "  %s\n" "───────────────────────────────────────────────────────────────────────────"
+echo ""
+
 if [[ -f "$CADDY_LOCAL_BIN"  ]]; then
-  if confirm "安装 Caddy（NaiveProxy over HTTPS）" "y"; then INSTALL_CADDY="yes"; fi
+  if confirm "安装 Caddy（NaiveProxy，需要域名 + ACME 证书）" "y"; then INSTALL_CADDY="yes"; fi
 else
   echo "  跳过 Caddy（缺少 caddy-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
 if [[ -f "$H2_LOCAL_BIN" ]]; then
-  if confirm "安装 Hysteria2（QUIC 协议代理）" "y"; then INSTALL_HYSTERIA="yes"; fi
+  if confirm "安装 Hysteria2（QUIC 代理，需要域名 + ACME 证书）" "y"; then INSTALL_HYSTERIA="yes"; fi
 else
   echo "  跳过 Hysteria2（缺少 hysteria-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
 if [[ -f "$TROJAN_LOCAL_BIN" ]]; then
-  if confirm "安装 Trojan（TLS 代理）" "n"; then INSTALL_TROJAN="yes"; fi
+  if confirm "安装 Trojan（TLS 代理，需要域名 + ACME 证书）" "n"; then INSTALL_TROJAN="yes"; fi
 else
   echo "  跳过 Trojan（缺少 trojan-go-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
 if [[ -f "$XRAY_LOCAL_BIN" ]]; then
-  if confirm "安装 VLESS Reality（Xray，无需证书）" "n"; then INSTALL_XRAY="yes"; fi
+  if confirm "安装 VLESS Reality（Xray，无需域名/证书）" "n"; then INSTALL_XRAY="yes"; fi
 else
   echo "  跳过 VLESS Reality（缺少 xray-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
 if [[ -f "$H2C_LOCAL_BIN" ]]; then
-  if confirm "安装 H2 Client（本地 Linux 客户端）" "n"; then INSTALL_H2CLIENT="yes"; fi
+  if confirm "安装 H2 Client（本地 Hysteria2 客户端）" "n"; then INSTALL_H2CLIENT="yes"; fi
 else
   echo "  跳过 H2 Client（缺少 h2-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
-if [[ "${INSTALL_CADDY}${INSTALL_HYSTERIA}${INSTALL_TROJAN}${INSTALL_XRAY}${INSTALL_H2CLIENT}" == "nonononono" ]]; then
+if [[ -f "$MIERU_LOCAL_BIN" ]]; then
+  if confirm "安装 Mieru（mita，无需域名/证书，协议自带加密）" "n"; then INSTALL_MIERU="yes"; fi
+else
+  echo "  跳过 Mieru（缺少 mita-linux-${ARCH}，请先运行 download-bins.sh）"
+fi
+
+if [[ "${INSTALL_CADDY}${INSTALL_HYSTERIA}${INSTALL_TROJAN}${INSTALL_XRAY}${INSTALL_H2CLIENT}${INSTALL_MIERU}" == "nononononono" ]]; then
   echo ""
   echo "未选择任何组件，退出。"
   exit 0
@@ -718,24 +825,19 @@ if [[ "$INSTALL_CADDY" == "yes" ]]; then
     INSTALL_CADDY="no"
   else
     prompt          CADDY_DOMAIN "Caddy 域名（A/AAAA 记录指向此 VPS）"
-    prompt_optional CADDY_PORT   "Caddy HTTPS 端口" "8443"
+    ask_port        CADDY_PORT   "Caddy HTTPS 端口" "8443" "tcp"
     prompt_with_random_default CADDY_USER "基本认证用户名（回车随机生成）" 10
     prompt_with_random_default CADDY_PASS "基本认证密码（回车随机生成）"   20
 
     echo ""
     echo "  正在检查域名解析..."
     check_domain_points "$CADDY_DOMAIN" || \
-      { confirm "域名未指向本机，仍然继续安装 Caddy" "y" || { INSTALL_CADDY="no"; echo "  已跳过。"; }; }
+      { confirm "域名未指向本机，仍然继续安装 Caddy" "y" || { INSTALL_CADDY="no"; _unclaim_port "$CADDY_PORT" "tcp"; echo "  已跳过。"; }; }
 
     if [[ "$INSTALL_CADDY" == "yes" ]]; then
-      echo "  正在检查端口..."
-      check_port_smart "80"          "tcp" || \
-        { confirm "端口 80 被占用，继续安装 Caddy" "n" || { INSTALL_CADDY="no"; echo "  已跳过。"; }; }
-    fi
-
-    if [[ "$INSTALL_CADDY" == "yes" ]]; then
-      check_port_smart "$CADDY_PORT" "tcp" || \
-        { confirm "端口 ${CADDY_PORT} 被占用，继续安装 Caddy" "n" || { INSTALL_CADDY="no"; echo "  已跳过。"; }; }
+      echo "  正在检查端口 80（ACME HTTP Challenge）..."
+      check_port_smart "80" "tcp" || \
+        { confirm "端口 80 被占用，继续安装 Caddy（ACME HTTP Challenge 可能失败）" "n" || { INSTALL_CADDY="no"; _unclaim_port "$CADDY_PORT" "tcp"; echo "  已跳过。"; }; }
     fi
 
     if [[ "$INSTALL_CADDY" == "yes" ]]; then
@@ -829,20 +931,14 @@ if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
     INSTALL_HYSTERIA="no"
   else
     prompt          H2_DOMAIN   "Hysteria 域名（A/AAAA 记录指向此 VPS）"
-    prompt_optional H2_PORT     "Hysteria 监听端口（UDP）" "443"
+    ask_port        H2_PORT     "Hysteria 监听端口" "443" "udp"
     prompt_with_random_default H2_PASSWORD "Hysteria 密码（回车随机生成）" 20
     prompt_optional H2_EMAIL    "ACME 注册邮箱（可留空）"
 
     echo ""
     echo "  正在检查域名解析..."
     check_domain_points "$H2_DOMAIN" || \
-      { confirm "域名未指向本机，仍然继续安装 Hysteria2" "y" || { INSTALL_HYSTERIA="no"; echo "  已跳过。"; }; }
-
-    if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
-      echo "  正在检查端口（Hysteria2 使用 UDP）..."
-      check_port_smart "$H2_PORT" "udp" || \
-        { confirm "UDP 端口 ${H2_PORT} 被占用，继续安装 Hysteria2" "n" || { INSTALL_HYSTERIA="no"; echo "  已跳过。"; }; }
-    fi
+      { confirm "域名未指向本机，仍然继续安装 Hysteria2" "y" || { INSTALL_HYSTERIA="no"; _unclaim_port "$H2_PORT" "udp"; echo "  已跳过。"; }; }
 
     if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
       mkdir -p /data/hysteria
@@ -938,20 +1034,14 @@ if [[ "$INSTALL_TROJAN" == "yes" ]]; then
     INSTALL_TROJAN="no"
   else
     prompt          TROJAN_DOMAIN "Trojan 域名（A/AAAA 记录指向此 VPS）"
-    prompt_optional TROJAN_PORT   "Trojan 监听端口（TCP）" "8880"
+    ask_port        TROJAN_PORT   "Trojan 监听端口" "8080" "tcp"
     prompt_with_random_default TROJAN_PASS  "Trojan 密码（回车随机生成）" 20
     prompt_optional TROJAN_EMAIL  "ACME 注册邮箱（可留空）"
 
     echo ""
     echo "  正在检查域名解析..."
     check_domain_points "$TROJAN_DOMAIN" || \
-      { confirm "域名未指向本机，仍然继续安装 Trojan" "y" || { INSTALL_TROJAN="no"; echo "  已跳过。"; }; }
-
-    if [[ "$INSTALL_TROJAN" == "yes" ]]; then
-      echo "  正在检查端口..."
-      check_port_smart "$TROJAN_PORT" "tcp" || \
-        { confirm "TCP 端口 ${TROJAN_PORT} 被占用，继续安装 Trojan" "n" || { INSTALL_TROJAN="no"; echo "  已跳过。"; }; }
-    fi
+      { confirm "域名未指向本机，仍然继续安装 Trojan" "y" || { INSTALL_TROJAN="no"; _unclaim_port "$TROJAN_PORT" "tcp"; echo "  已跳过。"; }; }
 
     if [[ "$INSTALL_TROJAN" == "yes" ]]; then
       mkdir -p /data/trojan
@@ -1080,14 +1170,9 @@ if [[ "$INSTALL_XRAY" == "yes" ]]; then
     echo "  跳过 VLESS Reality 安装（保留现有）。"
     INSTALL_XRAY="no"
   else
-    prompt_optional XRAY_PORT  "VLESS Reality 监听端口（TCP）" "443"
+    ask_port        XRAY_PORT  "VLESS Reality 监听端口" "443" "tcp"
     prompt_optional XRAY_SNI   "SNI（目标站点域名）" "www.pizzeriabianco.com"
     prompt_optional XRAY_DEST  "回落目标（SNI:port）" "${XRAY_SNI:-www.pizzeriabianco.com}:443"
-
-    echo ""
-    echo "  正在检查端口..."
-    check_port_smart "$XRAY_PORT" "tcp" || \
-      { confirm "TCP 端口 ${XRAY_PORT} 被占用，继续安装 VLESS Reality" "n" || { INSTALL_XRAY="no"; echo "  已跳过。"; }; }
 
     if [[ "$INSTALL_XRAY" == "yes" ]]; then
       mkdir -p /data/xray
@@ -1262,6 +1347,79 @@ EOF
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Mieru (mita 服务端)
+# ══════════════════════════════════════════════════════════════════════════════
+if [[ "$INSTALL_MIERU" == "yes" ]]; then
+  echo ""
+  echo "── Mieru (mita) 配置 ──"
+fi
+
+if [[ "$INSTALL_MIERU" == "yes" ]]; then
+  MIERU_ACTION="install"
+  if service_installed "mita"; then
+    MIERU_ACTION="$(ask_reinstall "Mieru (mita)" "mita")"
+  fi
+
+  if [[ "$MIERU_ACTION" == "skip" ]]; then
+    echo "  跳过 Mieru 安装（保留现有）。"
+    INSTALL_MIERU="no"
+  else
+    ask_port        MIERU_PORT     "Mieru 监听端口" "443" "tcp"
+    prompt_with_random_default MIERU_USER "Mieru 用户名（回车随机生成）" 10
+    prompt_with_random_default MIERU_PASS "Mieru 密码（回车随机生成）"   20
+
+    if [[ "$INSTALL_MIERU" == "yes" ]]; then
+      mkdir -p /data/mieru
+
+      if [[ "$MIERU_ACTION" == "overwrite" || "$MIERU_ACTION" == "install" ]]; then
+        cp -p "$MIERU_LOCAL_BIN" /data/mieru/mita
+        chmod +x /data/mieru/mita
+        cp "${ROOT_DIR}/mieru/mita.service" /etc/systemd/system/mita.service
+      fi
+
+      # 生成并应用服务端配置（mita 将配置持久化到内部存储）
+      MIERU_TMP_CFG="$(mktemp /tmp/mita-server-XXXXXX.json)"
+      umask 077
+      cat > "$MIERU_TMP_CFG" <<EOF
+{
+  "portBindings": [
+    {"port": ${MIERU_PORT}, "protocol": "TCP"}
+  ],
+  "users": [
+    {"name": "${MIERU_USER}", "password": "${MIERU_PASS}"}
+  ],
+  "loggingLevel": "INFO"
+}
+EOF
+
+      echo "  正在应用 Mieru 配置..."
+      if ! /data/mieru/mita apply config "$MIERU_TMP_CFG" 2>&1; then
+        echo "  错误：mita apply config 失败，请检查二进制文件是否正常。"
+        INSTALL_MIERU="no"
+      fi
+      rm -f "$MIERU_TMP_CFG"
+    fi
+
+    if [[ "$INSTALL_MIERU" == "yes" ]]; then
+      mieru_public_ip="$(curl -fsSL --connect-timeout 5 https://api.ipify.org 2>/dev/null || \
+                         curl -fsSL --connect-timeout 5 https://ifconfig.me 2>/dev/null || \
+                         echo "YOUR_VPS_IP")"
+      mieru_uri="mierus://${MIERU_USER}:${MIERU_PASS}@${mieru_public_ip}?port=${MIERU_PORT}&protocol=TCP"
+
+      {
+        echo "[Mieru (mita)]"
+        echo "Server  : ${mieru_public_ip}:${MIERU_PORT}/TCP"
+        echo "Username: ${MIERU_USER}"
+        echo "Password: ${MIERU_PASS}"
+        echo ""
+        echo "URI: ${mieru_uri}"
+      } > "$CONN_DIR/mieru.txt"
+      _show_uri "Mieru" "$mieru_uri" "$CONN_DIR/mieru-qr.png"
+    fi
+  fi
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 启用与启动服务
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
@@ -1284,6 +1442,7 @@ _start_service() {
 [[ "$INSTALL_TROJAN"   == "yes" ]] && _start_service "trojan"   "Trojan"
 [[ "$INSTALL_XRAY"     == "yes" ]] && _start_service "xray"     "VLESS Reality (Xray)"
 [[ "$INSTALL_H2CLIENT" == "yes" ]] && _start_service "h2client" "H2 Client"
+[[ "$INSTALL_MIERU"    == "yes" ]] && _start_service "mita"     "Mieru (mita)"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 完成汇总
@@ -1295,6 +1454,7 @@ echo "══ 安装完成 ══"
 [[ "$INSTALL_TROJAN"   == "yes" ]] && echo "  Trojan 状态         ：systemctl status trojan"
 [[ "$INSTALL_XRAY"     == "yes" ]] && echo "  VLESS Reality 状态  ：systemctl status xray"
 [[ "$INSTALL_H2CLIENT" == "yes" ]] && echo "  H2 Client 状态      ：systemctl status h2client"
+[[ "$INSTALL_MIERU"    == "yes" ]] && echo "  Mieru (mita) 状态   ：systemctl status mita"
 echo ""
 echo "  连接信息已保存到：${CONN_DIR}/"
 echo "  请妥善保管此目录中的密码信息。"

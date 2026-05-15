@@ -10,6 +10,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HYSTERIA_VERSION="2.6.1"
 TROJAN_GO_VERSION="0.10.6"
 XRAY_VERSION="25.3.6"
+MIERU_VERSION="3.32.0"
 
 ARCHS=("amd64" "arm64")
 
@@ -170,12 +171,28 @@ else
   echo "  caddy-linux-arm64 已存在，跳过。"
 fi
 
+# ─── Mieru Server (mita) ─────────────────────────────────────────────────────
+echo ""
+echo "=== 下载 Mieru Server (mita) v${MIERU_VERSION} ==="
+mkdir -p "${ROOT_DIR}/mieru"
+
+TMP_MITA_TAR="/tmp/mita-download.tar.gz"
+for arch in "${ARCHS[@]}"; do
+  dest="${ROOT_DIR}/mieru/mita-linux-${arch}"
+  url="https://github.com/enfein/mieru/releases/download/v${MIERU_VERSION}/mita_${MIERU_VERSION}_linux_${arch}.tar.gz"
+  dl "$url" "$TMP_MITA_TAR" "mita (mieru server) ${arch}"
+  tar -xzf "$TMP_MITA_TAR" -C /tmp mita
+  mv /tmp/mita "$dest"
+  chmod +x "$dest"
+  rm -f "$TMP_MITA_TAR"
+done
+
 # ─── 汇总 ────────────────────────────────────────────────────────────────────
 echo ""
 echo "=== 下载完成 ==="
 echo ""
 echo "文件列表："
-for dir in caddy hysteria trojan xray h2client; do
+for dir in caddy hysteria trojan xray h2client mieru; do
   echo "  ${dir}/"
   find "${ROOT_DIR}/${dir}" -maxdepth 1 -type f \( -name "*linux*" -o -name "*.zip" \) \
     -exec ls -lh {} \; 2>/dev/null | awk '{printf "    %-12s %s\n", $5, $NF}' || true

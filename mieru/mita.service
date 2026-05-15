@@ -1,0 +1,11 @@
+[Unit]
+Description=mita proxy server (mieru)
+After=network.target
+
+[Service]
+ExecStart=/data/mieru/mita run
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
