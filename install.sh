@@ -746,6 +746,28 @@ INSTALL_XRAY="no"
 INSTALL_H2CLIENT="no"
 INSTALL_MIERU="no"
 
+# 先用一个问题分流：没有域名的用户只能装 VLESS Reality，不必再逐个询问
+ASK_COMPONENTS="yes"
+echo "第一个问题决定后面要不要继续问："
+echo "  域名指的是 example.com 这种网址。Caddy / Hysteria2 / Trojan 需要它来申请"
+echo "  TLS 证书；VLESS Reality 不需要，直接用本机 IP 即可。"
+echo ""
+if ! confirm "你有自己的域名（且已把 A 记录指向本机）" "n"; then
+  if [[ -f "$XRAY_LOCAL_BIN" ]]; then
+    ASK_COMPONENTS="no"
+    INSTALL_XRAY="yes"
+    echo ""
+    echo "  没有域名 → 只安装 VLESS Reality (Xray)，其余组件全部跳过。"
+    echo "  它无需域名和证书，客户端填本机 IP 即可连接。"
+  else
+    echo ""
+    echo "  没有域名，但缺少 xray-linux-${ARCH}，无法自动选择，改为手动选择组件。"
+    echo "  （请先在有网络的机器上运行 download-bins.sh）"
+  fi
+fi
+echo ""
+
+if [[ "$ASK_COMPONENTS" == "yes" ]]; then
 echo "请选择要安装的组件："
 echo ""
 echo "  协议说明："
@@ -761,7 +783,7 @@ printf "  %s\n" "─────────────────────
 echo ""
 
 if [[ -f "$CADDY_LOCAL_BIN"  ]]; then
-  if confirm "安装 Caddy（NaiveProxy，需要域名 + ACME 证书）" "y"; then INSTALL_CADDY="yes"; fi
+  if confirm "安装 Caddy（NaiveProxy，需要域名 + ACME 证书）" "n"; then INSTALL_CADDY="yes"; fi
 else
   echo "  跳过 Caddy（缺少 caddy-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
@@ -779,7 +801,7 @@ else
 fi
 
 if [[ -f "$XRAY_LOCAL_BIN" ]]; then
-  if confirm "安装 VLESS Reality（Xray，无需域名/证书）" "n"; then INSTALL_XRAY="yes"; fi
+  if confirm "安装 VLESS Reality（Xray，无需域名/证书）" "y"; then INSTALL_XRAY="yes"; fi
 else
   echo "  跳过 VLESS Reality（缺少 xray-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
@@ -795,6 +817,7 @@ if [[ -f "$MIERU_LOCAL_BIN" ]]; then
 else
   echo "  跳过 Mieru（缺少 mita-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
+fi   # ASK_COMPONENTS
 
 if [[ "${INSTALL_CADDY}${INSTALL_HYSTERIA}${INSTALL_TROJAN}${INSTALL_XRAY}${INSTALL_H2CLIENT}${INSTALL_MIERU}" == "nononononono" ]]; then
   echo ""
@@ -1171,8 +1194,8 @@ if [[ "$INSTALL_XRAY" == "yes" ]]; then
     INSTALL_XRAY="no"
   else
     ask_port        XRAY_PORT  "VLESS Reality 监听端口" "443" "tcp"
-    prompt_optional XRAY_SNI   "SNI（目标站点域名）" "www.pizzeriabianco.com"
-    prompt_optional XRAY_DEST  "回落目标（SNI:port）" "${XRAY_SNI:-www.pizzeriabianco.com}:443"
+    prompt_optional XRAY_SNI   "SNI（目标站点域名）" "www.icloud.com"
+    prompt_optional XRAY_DEST  "回落目标（SNI:port）" "${XRAY_SNI:-www.icloud.com}:443"
 
     if [[ "$INSTALL_XRAY" == "yes" ]]; then
       mkdir -p /data/xray

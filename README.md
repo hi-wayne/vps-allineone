@@ -11,6 +11,155 @@
 
 ---
 
+## 完全不懂技术？让 AI 工具帮你装
+
+如果你不了解 VPN、代理、Linux，只想要一个能用的翻墙服务，按下面五步走。全程你只需要复制粘贴，技术活交给 AI 工具做。
+
+**你不需要看懂任何技术名词**，也不需要决定用什么协议、要不要买域名——下面给的默认方案是最省事的一种：只买一台服务器，不用买域名。
+
+### 先花 30 秒认识三个词
+
+看完这三句就够了，其他名词后面都不用你管。
+
+| 名词 | 大白话解释 |
+|------|-----------|
+| **VPS** | 就是一台租来的电脑，放在国外，24 小时开着。你花钱租它，让它帮你转发上网流量。一个月十几到几十块。 |
+| **域名** | 就是 `baidu.com` 这种网址。它的作用是给一台服务器起个好记的名字，代替 `123.45.67.89` 这种数字。**下面的默认方案不需要域名**，直接用数字地址就能用，不用买、不用管。 |
+| **协议** | 你的手机和这台国外电脑之间「说话的方式」。方式不同，伪装效果和速度不同。**你不用选**，默认方案会装当前最好用的那种（VLESS Reality），它的最大优点正是不需要域名。 |
+
+> 后面出现的 SNI、UUID、ACME、证书之类的词，全部由脚本和 AI 工具处理，你看到了直接跳过就行。
+
+### Step 1  买一台 VPS（服务器）
+
+推荐 **DMIT**，CN2/CMIN2 优化线路，国内访问延迟低、稳定：
+
+- 注册地址：https://www.dmit.io/aff.php?aff=12025
+- 机房选 **Los Angeles（洛杉矶）**，套餐里带 **Premium / CN2 GIA** 字样的线路国内体验最好
+- 最低配置（1 核 / 512M 内存）就够跑代理，不用买大配置
+- 付款后等几分钟，DMIT 会发一封邮件给你
+
+### Step 2  装系统时选 Debian 12
+
+在 DMIT 后台的机器管理页面（或开通时的选项里）选择操作系统，**选 Debian 12**。本仓库只在 Debian 系上验证过，选别的系统可能装不上。
+
+### Step 3  找到登录服务器要用的三样东西
+
+从 DMIT 的开通邮件或后台控制台里找到：
+
+| 要找的东西 | 长什么样 | 在哪找 |
+|-----------|---------|--------|
+| 服务器 IP | `123.45.67.89` | 开通邮件 / 后台机器详情页 |
+| 登录用户名 | 一般就是 `root` | 同上 |
+| 登录密码 | 一串随机字符 | 开通邮件；忘了可在后台重置 root 密码 |
+
+> 有些套餐默认只让 SSH 密钥登录。如果邮件里没有密码，去后台把 root 密码重置一下，拿到密码即可。
+
+### Step 4  把下面这段话交给 AI 工具
+
+用任意能执行命令的 AI 编程工具（如 Claude Code），把下面整段复制进去，**只需要把两处方括号换成 Step 3 拿到的 IP 和密码**，其他一个字都不用改，然后发送：
+
+```
+请帮我在一台 VPS 上部署翻墙代理服务。我完全不懂技术，请全程用大白话告诉我
+进展；需要我做什么操作时，一步一步说清楚点哪里；我问任何名词请用生活里的
+例子解释，不要甩术语给我。
+
+服务器信息：
+- IP: [填你的服务器 IP]
+- 用户: root
+- 密码: [填你的 root 密码]
+- 系统: Debian 12
+
+请按这个流程做：
+1. SSH 登录到这台服务器
+2. 执行 apt update && apt install -y git
+3. git clone https://github.com/hi-wayne/vps-allineone.git && cd vps-allineone
+4. 执行 sudo ./install.sh，这是个交互式脚本，请这样回答：
+   - 第一个问题「你有自己的域名」          → 回答 n
+     （回答 n 之后脚本会自动只装 VLESS Reality，不会再问其他组件）
+   - 之后所有带默认值的提问（端口、SNI 等） → 一律直接回车用默认值
+5. 装完后把 /data/connection-info/xray.txt 的内容完整发给我
+6. 告诉我在手机和电脑上分别用什么客户端软件、怎么把这段连接信息导入进去。
+   如果我用 iPhone 的 Shadowrocket，请把每一栏该填什么逐项列给我：地址、端口、
+   UUID、流控、传输方式、TLS 开关、SNI、公钥(PublicKey)、ShortID、指纹
+```
+
+发出去之后你基本不用管了，AI 工具会自己登录、下载、装好。中间它可能问你一两个问题，照它说的答即可；看不懂就直接回它「这是什么意思，用大白话讲」。
+
+### Step 5  拿到连接信息，装客户端
+
+脚本跑完后，AI 工具会把连接信息给你，长这样：
+
+```
+URI: vless://xxxxxxxx@123.45.67.89:443?security=reality&flow=xtls-rprx-vision&sni=www.icloud.com&pbk=...&sid=...&fp=chrome&type=tcp#VPS-Reality
+```
+
+把这段 `vless://...` 整个复制，粘贴到客户端软件里（客户端一般有「从剪贴板导入」的按钮）。手机上还可以直接扫服务器上生成的二维码图片 `/data/connection-info/xray-qr.png`。
+
+客户端选哪个，直接问 AI 工具「我用 iPhone / 安卓 / Windows / Mac，装哪个客户端」，它会告诉你当前能用的。
+
+#### iPhone：Shadowrocket 怎么填（逐项对照）
+
+**最省事的办法**：复制那段 `vless://...`，打开 Shadowrocket，右上角 **+**，类型选 **Subscribe / 或直接点首页顶部弹出的「从剪贴板添加」**，它会自动把所有参数填好。扫 `xray-qr.png` 二维码也一样。
+
+如果自动导入失败，就手动加一个节点：右上角 **+** → 类型选 **VLESS**，然后按下表逐项填。左边是 Shadowrocket 里的字段名，右边是从 `/data/connection-info/xray.txt` 里对应抄哪一项：
+
+| Shadowrocket 字段 | 填什么 | 从哪抄 |
+|------------------|--------|--------|
+| 类型 | `VLESS` | — |
+| 地址 | DMIT 主机的 IP，如 `123.45.67.89` | `xray.txt` 里 URI 中 `@` 后面那串数字 |
+| 端口 | `443` | `Port` 那行 |
+| UUID | 一长串带横线的字符 | `UUID` 那行 |
+| 流控（Flow） | `xtls-rprx-vision` | `Flow` 那行，固定就是这个 |
+| 传输方式（Transport） | **none** | 固定选 none，不要选 ws / grpc / h2 |
+| TLS | **打开（开启）** | — |
+| SNI（有的版本叫 Peer 名称） | 伪装域名 `www.icloud.com` | `SNI` 那行 |
+| 公钥（PublicKey / Reality 公钥） | 一串 43 位字符 | `PublicKey` 那行 |
+| ShortID（Short ID） | 8 位字母数字，如 `a1b2c3d4` | `ShortId` 那行 |
+| 指纹（Fingerprint） | `chrome` | — |
+| 允许不安全（Allow Insecure） | **关闭** | — |
+
+**几个最容易填错、导致连不上的地方**：
+
+- **地址填 IP，不要填 SNI 那个域名**。`www.icloud.com` 只是用来伪装的「幌子」，不是你的服务器，填进地址栏一定连不上。
+- **传输方式必须是 none**。选了 ws / grpc 会握手失败。
+- **TLS 必须打开**，同时 **公钥（PublicKey）和 ShortID 一个都不能漏**——这两项是 Reality 的身份凭证，漏了就连不上。有些 Shadowrocket 版本要先把 TLS 开关打开，公钥和 ShortID 的输入框才会出现。
+- **SNI 必须和服务器上的一致**。服务器默认是 `www.icloud.com`，客户端也必须一字不差地填它。
+- **允许不安全（Allow Insecure）保持关闭**。Reality 靠的就是真证书校验，打开反而不对。
+
+安卓（v2rayNG / Nekobox）、Windows / Mac（v2rayN、Clash Verge、sing-box）填的字段名基本一样，一一对应上表即可；这些客户端也都支持直接粘贴 `vless://` 链接导入。
+
+### 进阶（可选，不看也不影响使用）：想再快一点，可以多买个域名
+
+上面的方案已经能正常上网了，看视频也够。如果你后来觉得想更快、或者网络环境比较差（比如经常掉线、丢包多），可以再花一年几十块买一个域名，多装一个 **Hysteria2**。
+
+为什么这个要买域名：Hysteria2 需要一张「身份证明」（TLS 证书）才能工作，而免费发证书的机构只认域名，不认 `123.45.67.89` 这种数字地址。VLESS Reality 不需要证书，所以不用域名——这就是它被设为默认的原因。
+
+| 协议 | 要买域名吗 | 大白话 |
+|------|-----------|--------|
+| **VLESS Reality**（默认装） | 不用 | 把自己的流量伪装成访问某个真实大网站，只要服务器的数字地址就能跑，最抗封锁 |
+| **Hysteria2**（可选加装） | 要 | 走另一条更「冲」的通道，网络差的时候速度明显更好 |
+
+想加装的话，域名在阿里云、腾讯云、Cloudflare、Namecheap 之类的地方都能买，买完还要做一步「把域名指向你的服务器」的设置。这些都不用自己研究，把下面这段发给同一个 AI 工具，让它带你做：
+
+```
+我已经装好 VLESS Reality 了，现在想再加装 Hysteria2。我买了域名 [填你的域名]，
+服务器还是之前那台。请：
+1. 先教我在域名服务商后台怎么添加一条指向服务器 IP 的记录，一步步说点哪里
+2. 确认域名已经生效后，重新运行 vps-allineone 目录下的 sudo ./install.sh
+3. 这次第一个问题「你有自己的域名」回答 y，然后只在问 Hysteria2 时回答 y 并填
+   我的域名，其他组件一律回答 n（已装好的 VLESS Reality 如果被问到，选「跳过」），
+   端口和密码直接回车用默认
+4. 装完把 /data/connection-info/hysteria2.txt 的内容发给我，并告诉我怎么导入客户端
+```
+
+### 安全提醒
+
+- 把 root 密码交给 AI 工具，等于让它拥有这台服务器的完全控制权。**只在自己买的、没有别的用途的服务器上这么做**，不要把公司或他人的服务器密码贴给 AI 工具。
+- 装完后建议让 AI 工具帮你把 root 密码改成一个新的强密码。
+- 连接信息（UUID、PublicKey）等同于密码，不要发到群里或公开的地方。
+
+---
+
 ## 目录结构
 
 ```
@@ -92,7 +241,7 @@ vps-allineone/
 ### Step 1  在 VPS 上克隆仓库
 
 ```bash
-git clone git@github.com:hi-wayne/vps-allineone.git
+git clone https://github.com/hi-wayne/vps-allineone.git
 cd vps-allineone
 ```
 
@@ -106,12 +255,13 @@ sudo ./install.sh
 安装脚本会依次：
 
 1. **扫描本机已有代理软件**，展示各服务运行状态、协议、端口、域名
-2. **检测各组件二进制是否就绪**，有包才询问是否安装
-3. **交互式配置**，引导填写域名/端口/密码（支持回车随机生成）
-4. **检查域名解析**是否指向本机
-5. **检查端口占用**，识别占用进程与协议
-6. **写入配置到 `/data/`**，安装并启动 systemd 服务
-7. **生成连接信息**到 `/data/connection-info/` 目录（每个服务独立文件）
+2. **询问是否有自己的域名** —— 回答「否」则直接只安装 VLESS Reality，跳过其余全部组件询问；回答「是」才展开完整的组件选择菜单
+3. **检测各组件二进制是否就绪**，有包才询问是否安装
+4. **交互式配置**，引导填写域名/端口/密码（支持回车随机生成）
+5. **检查域名解析**是否指向本机
+6. **检查端口占用**，识别占用进程与协议
+7. **写入配置到 `/data/`**，安装并启动 systemd 服务
+8. **生成连接信息**到 `/data/connection-info/` 目录（每个服务独立文件）
 
 #### 重复执行
 
@@ -202,7 +352,7 @@ sudo ./install.sh
 |------|--------|
 | 监听端口 | 443（TCP） |
 | UUID | 随机生成 |
-| SNI | www.pizzeriabianco.com |
+| SNI | www.icloud.com |
 | Flow | xtls-rprx-vision |
 
 **证书获取**：不需要证书。REALITY 协议使用服务端生成的密钥对（PublicKey/PrivateKey）进行认证，无需申请 TLS 证书，安装后立即可用。
@@ -286,7 +436,7 @@ Chrome 插件 [Proxy SwitchyOmega](https://chromewebstore.google.com/detail/prox
 - **NaiveProxy**：服务器域名:端口 + 用户名/密码
 - **Hysteria2**：服务器域名:端口 + 密码
 - **Trojan**：服务器域名:端口 + 密码
-- **VLESS Reality**：服务器 IP:端口 + UUID + PublicKey + ShortId + SNI（见 `/data/connection-info/xray.txt`）
+- **VLESS Reality**：服务器 IP:端口 + UUID + PublicKey + ShortId + SNI（见 `/data/connection-info/xray.txt`）；Shadowrocket 逐项填法见上方「[iPhone：Shadowrocket 怎么填](#iphoneshadowrocket-怎么填逐项对照)」
 
 ---
 
