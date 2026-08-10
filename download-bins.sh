@@ -7,9 +7,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ─── 版本配置 ────────────────────────────────────────────────────────────────
-HYSTERIA_VERSION="2.6.1"
+HYSTERIA_VERSION="2.12.1"
 TROJAN_GO_VERSION="0.10.6"
-XRAY_VERSION="25.3.6"
+XRAY_VERSION="26.3.27"
 MIERU_VERSION="3.32.0"
 
 ARCHS=("amd64" "arm64")

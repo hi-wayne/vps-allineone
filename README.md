@@ -21,6 +21,8 @@
 
 一键在 VPS 上部署多种代理协议，支持 **Caddy (NaiveProxy)**、**Hysteria2**、**Trojan**、**VLESS Reality (Xray)**、**H2 Client**。
 
+**优先支持 Hysteria2 + VLESS Reality 这两个组件**：有域名时安装脚本会直接推荐这个组合，两者可同用 443（Hysteria2 占 UDP、Reality 占 TCP），互不冲突。Hysteria2 走 QUIC，线路丢包时速度远好于 TCP 协议，适合做日常主力；Reality 抗封锁最强、无需证书，适合做备用。
+
 - 交互式安装，引导填写域名/端口/密码，支持随机生成
 - 全离线部署，所有二进制预先下载好，安装时无需联网
 - 自动检测已安装的代理软件并展示概览
@@ -120,7 +122,7 @@ DMIT 的洛杉矶 CN2 GIA 套餐经常卖光（页面显示 Out of Stock / 无�
 脚本跑完后，AI 工具会把连接信息给你，长这样：
 
 ```
-URI: vless://xxxxxxxx@123.45.67.89:443?security=reality&flow=xtls-rprx-vision&sni=www.icloud.com&pbk=...&sid=...&fp=chrome&type=tcp#VPS-Reality
+URI: vless://xxxxxxxx@123.45.67.89:443?security=reality&flow=xtls-rprx-vision&sni=www.samsung.com&pbk=...&sid=...&fp=chrome&type=tcp#VPS-Reality
 ```
 
 把这段 `vless://...` 整个复制，粘贴到客户端软件里（客户端一般有「从剪贴板导入」的按钮）。手机上还可以直接扫服务器上生成的二维码图片 `/data/connection-info/xray-qr.png`。
@@ -142,7 +144,7 @@ URI: vless://xxxxxxxx@123.45.67.89:443?security=reality&flow=xtls-rprx-vision&sn
 | 流控（Flow） | `xtls-rprx-vision` | `Flow` 那行，固定就是这个 |
 | 传输方式（Transport） | **none** | 固定选 none，不要选 ws / grpc / h2 |
 | TLS | **打开（开启）** | — |
-| SNI（有的版本叫 Peer 名称） | 伪装域名 `www.icloud.com` | `SNI` 那行 |
+| SNI（有的版本叫 Peer 名称） | 伪装域名 `www.samsung.com` | `SNI` 那行 |
 | 公钥（PublicKey / Reality 公钥） | 一串 43 位字符 | `PublicKey` 那行 |
 | ShortID（Short ID） | 8 位字母数字，如 `a1b2c3d4` | `ShortId` 那行 |
 | 指纹（Fingerprint） | `chrome` | — |
@@ -150,10 +152,10 @@ URI: vless://xxxxxxxx@123.45.67.89:443?security=reality&flow=xtls-rprx-vision&sn
 
 **几个最容易填错、导致连不上的地方**：
 
-- **地址填 IP，不要填 SNI 那个域名**。`www.icloud.com` 只是用来伪装的「幌子」，不是你的服务器，填进地址栏一定连不上。
+- **地址填 IP，不要填 SNI 那个域名**。`www.samsung.com` 只是用来伪装的「幌子」，不是你的服务器，填进地址栏一定连不上。
 - **传输方式必须是 none**。选了 ws / grpc 会握手失败。
 - **TLS 必须打开**，同时 **公钥（PublicKey）和 ShortID 一个都不能漏**——这两项是 Reality 的身份凭证，漏了就连不上。有些 Shadowrocket 版本要先把 TLS 开关打开，公钥和 ShortID 的输入框才会出现。
-- **SNI 必须和服务器上的一致**。服务器默认是 `www.icloud.com`，客户端也必须一字不差地填它。
+- **SNI 必须和服务器上的一致**。服务器默认是 `www.samsung.com`，客户端也必须一字不差地填它。
 - **允许不安全（Allow Insecure）保持关闭**。Reality 靠的就是真证书校验，打开反而不对。
 
 安卓（v2rayNG / Nekobox）、Windows / Mac（v2rayN、Clash Verge、sing-box）填的字段名基本一样，一一对应上表即可；这些客户端也都支持直接粘贴 `vless://` 链接导入。
@@ -216,8 +218,9 @@ URI: vless://xxxxxxxx@123.45.67.89:443?security=reality&flow=xtls-rprx-vision&sn
    ```
    `install.sh` 是交互式的，按下面的规则应答：
    - 第一个问题「你有自己的域名」→ 用户没有域名就答 **n**，脚本会自动只安装 VLESS Reality 并跳过其余全部组件询问。
-   - 用户明确说有域名、且愿意多装 Hysteria2 → 答 **y**，然后在组件菜单里只对 Hysteria2 和 VLESS Reality 答 y，其余答 n；域名填他提供的那个，安装前先确认 A 记录已指向本机。
-   - 其余所有带默认值的提问（端口、SNI、回落目标、密码）→ 一律回车用默认值。
+   - 用户明确说有域名 → 答 **y**，接着脚本会问「安装推荐组合（Hysteria2 + VLESS Reality）」→ 答 **y**，两个组件会一起装好并跳过其余组件询问；域名填他提供的那个，安装前先确认 A 记录已指向本机（且 Cloudflare 上必须是 **DNS only 灰云**，开橙云代理会导致证书申请和 QUIC 都失败）。
+   - 需要装推荐组合之外的组件时，对推荐组合答 **n**，再在完整组件菜单里逐个选。
+   - 其余所有带默认值的提问（端口、SNI、回落目标、密码）→ 一律回车用默认值。Hysteria2 与 Reality 同用 443 不冲突：前者占 UDP、后者占 TCP，脚本会自动跳过 Hysteria2 的 HTTP 伪装站点以避开 TCP 端口冲突。
    - 若脚本报告某组件已安装并给出「覆盖 / 仅更新配置 / 跳过」三选，默认选**跳过**，除非用户要求重装。
 5. **交付连接信息**：读取 `/data/connection-info/xray.txt`（装了 Hysteria2 则还有 `hysteria2.txt`），把里面的 `vless://` 链接完整给用户。
 6. **指导客户端**：问用户用什么设备，然后给出对应客户端并**逐项**说明怎么填。iPhone / Shadowrocket 的字段对照见本文档「iPhone：Shadowrocket 怎么填」一节——务必包含 **公钥(PublicKey) 和 ShortID**，漏掉这两项连不上；并提醒他地址栏填服务器 IP、不是 SNI 里那个伪装域名。
@@ -285,13 +288,18 @@ vps-allineone/
 
 仓库中已预置所有组件的二进制文件，克隆后**无需联网**即可安装。
 
-| 组件 | 版本 | 架构 |
-|------|------|------|
-| Caddy（含 NaiveProxy 插件） | 自定义编译 | amd64 |
-| Hysteria2 | 2.6.1 | amd64、arm64 |
-| Trojan-go | 0.10.6 | amd64、arm64 |
-| Xray-core | 25.3.6 | amd64、arm64 |
-| H2 Client（Hysteria2 客户端） | 2.6.1 | amd64、arm64 |
+| 组件 | 仓库内二进制 | download-bins.sh 目标版本 | 架构 |
+|------|------------|--------------------------|------|
+| Caddy（含 NaiveProxy 插件） | 自定义编译 | — | amd64 |
+| Hysteria2 | 2.6.1 | **2.12.1** | amd64、arm64 |
+| Trojan-go | 0.10.6 | 0.10.6 | amd64、arm64 |
+| Xray-core | 25.3.6 | **26.3.27** | amd64、arm64 |
+| H2 Client（Hysteria2 客户端） | 2.6.1 | **2.12.1** | amd64、arm64 |
+| Mieru (mita) | 3.32.0 | 3.32.0 | amd64、arm64 |
+
+> **仓库内的二进制暂未跟进到最新版**（大文件不便随每次改动一起提交）。`download-bins.sh` 里的版本号已指向上表的目标版本，**装机前建议先在有网络的机器上跑一次 `./download-bins.sh`**，把二进制刷新到新版再部署。
+>
+> Hysteria2 2.12.1 被上游标记为 urgent 更新，Xray 26.3.27 修正了对 apple/icloud 类伪装目标的告警行为，两者都建议更新。Trojan-go 上游已停止维护，不在优先支持范围内。
 
 ### 关于 download-bins.sh
 
@@ -427,7 +435,7 @@ sudo ./install.sh
 |------|--------|
 | 监听端口 | 443（TCP） |
 | UUID | 随机生成 |
-| SNI | www.icloud.com |
+| SNI | www.samsung.com |
 | Flow | xtls-rprx-vision |
 
 **证书获取**：不需要证书。REALITY 协议使用服务端生成的密钥对（PublicKey/PrivateKey）进行认证，无需申请 TLS 证书，安装后立即可用。

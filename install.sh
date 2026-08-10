@@ -764,6 +764,22 @@ if ! confirm "你有自己的域名（且已把 A 记录指向本机）" "n"; th
     echo "  没有域名，但缺少 xray-linux-${ARCH}，无法自动选择，改为手动选择组件。"
     echo "  （请先在有网络的机器上运行 download-bins.sh）"
   fi
+else
+  # 有域名 → 优先推荐 Hysteria2 + VLESS Reality 组合
+  if [[ -f "$H2_LOCAL_BIN" && -f "$XRAY_LOCAL_BIN" ]]; then
+    echo ""
+    echo "  推荐组合：Hysteria2 + VLESS Reality"
+    echo "    Hysteria2      QUIC/UDP  日常主力，线路丢包时速度远好于 TCP 协议"
+    echo "    VLESS Reality  TCP       备用，抗封锁最强，无需证书"
+    echo "  两者可同用 443（一个占 UDP、一个占 TCP），互不冲突。"
+    echo ""
+    if confirm "安装推荐组合（Hysteria2 + VLESS Reality）" "y"; then
+      ASK_COMPONENTS="no"
+      INSTALL_HYSTERIA="yes"
+      INSTALL_XRAY="yes"
+      echo "  已选择推荐组合，其余组件全部跳过。"
+    fi
+  fi
 fi
 echo ""
 
@@ -977,6 +993,15 @@ if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
       # → 优先复用 Caddy 证书文件；次选 HTTP Challenge；无法 HTTP 则输出警告
       h2_acme_method="$(resolve_acme "$H2_DOMAIN" "")"
 
+      # masquerade.listenHTTPS 需要同号 TCP 端口；判断它是否可用
+      h2_tcp_free="yes"
+      h2_tcp_claimant="$(port_claimed_by "$H2_PORT" "tcp")" || true
+      if [[ -n "$h2_tcp_claimant" ]] || port_in_use "$H2_PORT" "tcp"; then
+        h2_tcp_free="no"
+        echo "  提示：TCP ${H2_PORT} 已被${h2_tcp_claimant:+「${h2_tcp_claimant}」}占用，"
+        echo "        Hysteria2 将只监听 UDP ${H2_PORT}，不启用 HTTP 伪装站点。"
+      fi
+
       {
         echo "listen: :${H2_PORT}"
         echo ""
@@ -1013,8 +1038,13 @@ if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
         echo "  password: ${H2_PASSWORD}"
         echo ""
         echo "masquerade:"
-        echo "  listenHTTPS: :${H2_PORT}"
-        echo "  forceHTTPS: true"
+        # listenHTTPS 会额外占用同号 TCP 端口；若该 TCP 端口已被本机服务
+        # （典型是同用 443 的 VLESS Reality）占用或已被本次安装认领，
+        # 则不生成这两行，否则 Hysteria2 会因 bind 失败而无法启动。
+        if [[ "$h2_tcp_free" == "yes" ]]; then
+          echo "  listenHTTPS: :${H2_PORT}"
+          echo "  forceHTTPS: true"
+        fi
         echo "  type: string"
         echo "  string:"
         echo "    statusCode: 404"
@@ -1194,8 +1224,8 @@ if [[ "$INSTALL_XRAY" == "yes" ]]; then
     INSTALL_XRAY="no"
   else
     ask_port        XRAY_PORT  "VLESS Reality 监听端口" "443" "tcp"
-    prompt_optional XRAY_SNI   "SNI（目标站点域名）" "www.icloud.com"
-    prompt_optional XRAY_DEST  "回落目标（SNI:port）" "${XRAY_SNI:-www.icloud.com}:443"
+    prompt_optional XRAY_SNI   "SNI（目标站点域名）" "www.samsung.com"
+    prompt_optional XRAY_DEST  "回落目标（SNI:port）" "${XRAY_SNI:-www.samsung.com}:443"
 
     if [[ "$INSTALL_XRAY" == "yes" ]]; then
       mkdir -p /data/xray
