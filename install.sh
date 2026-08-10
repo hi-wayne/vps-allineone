@@ -211,7 +211,7 @@ port_claimed_by() {
 # 同时检测：① 本次安装已认领的端口  ② 系统当前已监听的端口
 check_port_smart() {
   local port="$1" proto="${2:-tcp}" claimant
-  claimant="$(port_claimed_by "$port" "$proto")"
+  claimant="$(port_claimed_by "$port" "$proto")" || true
   if [[ -n "$claimant" ]]; then
     echo "  警告：${proto^^} 端口 ${port} 已被本次安装的「${claimant}」占用"
     return 1
@@ -244,7 +244,7 @@ ask_port() {
     port="${port:-$default_port}"
 
     # 检查本次安装已认领的端口
-    claimant="$(port_claimed_by "$port" "$proto")"
+    claimant="$(port_claimed_by "$port" "$proto")" || true
     if [[ -n "$claimant" ]]; then
       echo "  冲突：${proto^^} 端口 ${port} 已被本次安装的「${claimant}」占用，请重新输入。"
       continue
