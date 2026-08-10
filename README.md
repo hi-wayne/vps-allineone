@@ -288,18 +288,16 @@ vps-allineone/
 
 仓库中已预置所有组件的二进制文件，克隆后**无需联网**即可安装。
 
-| 组件 | 仓库内二进制 | download-bins.sh 目标版本 | 架构 |
-|------|------------|--------------------------|------|
-| Caddy（含 NaiveProxy 插件） | 自定义编译 | — | amd64 |
-| Hysteria2 | 2.6.1 | **2.12.1** | amd64、arm64 |
-| Trojan-go | 0.10.6 | 0.10.6 | amd64、arm64 |
-| Xray-core | 25.3.6 | **26.3.27** | amd64、arm64 |
-| H2 Client（Hysteria2 客户端） | 2.6.1 | **2.12.1** | amd64、arm64 |
-| Mieru (mita) | 3.32.0 | 3.32.0 | amd64、arm64 |
+| 组件 | 版本 | 架构 |
+|------|------|------|
+| Caddy（含 NaiveProxy 插件） | 自定义编译 | amd64 |
+| Hysteria2 | 2.12.1 | amd64、arm64 |
+| Trojan-go | 0.10.6 | amd64、arm64 |
+| Xray-core | 26.3.27 | amd64、arm64 |
+| H2 Client（Hysteria2 客户端） | 2.12.1 | amd64、arm64 |
+| Mieru (mita) | 3.32.0 | amd64、arm64 |
 
-> **仓库内的二进制暂未跟进到最新版**（大文件不便随每次改动一起提交）。`download-bins.sh` 里的版本号已指向上表的目标版本，**装机前建议先在有网络的机器上跑一次 `./download-bins.sh`**，把二进制刷新到新版再部署。
->
-> Hysteria2 2.12.1 被上游标记为 urgent 更新，Xray 26.3.27 修正了对 apple/icloud 类伪装目标的告警行为，两者都建议更新。Trojan-go 上游已停止维护，不在优先支持范围内。
+> Hysteria2 2.12.1 是上游标记为 urgent 的更新；Xray 26.3.27 会对 apple/icloud 类伪装目标发出告警，本仓库默认 SNI 已相应改为 `www.samsung.com`。Trojan-go 上游已停止维护，版本停留在 0.10.6，与 Mieru 一样不在优先支持范围内。
 
 ### 关于 download-bins.sh
 
