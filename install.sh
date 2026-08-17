@@ -270,6 +270,26 @@ ask_port() {
   _claim_port "$port" "$proto" "$svc_desc"
 }
 
+# 主推的三个协议占用固定端口（Xray/Hysteria 443+8443、AnyTLS 8080）后，
+# 其余组件从这个常见 HTTPS 端口池里随机挑一个空闲的作为默认值。
+PORT_POOL=(443 2053 2083 2087 2096 8443)
+
+# 用法: random_free_port 兜底端口 [tcp|udp]
+random_free_port() {
+  local fallback="$1" proto="${2:-tcp}" pool=() i j tmp p
+  pool=("${PORT_POOL[@]}")
+  for ((i = ${#pool[@]} - 1; i > 0; i--)); do
+    j=$((RANDOM % (i + 1)))
+    tmp="${pool[i]}"; pool[i]="${pool[j]}"; pool[j]="$tmp"
+  done
+  for p in "${pool[@]}"; do
+    if port_claimed_by "$p" "$proto" >/dev/null; then continue; fi
+    if port_in_use "$p" "$proto"; then continue; fi
+    echo "$p"; return 0
+  done
+  echo "$fallback"
+}
+
 # ─── ACME 证书策略协调 ───────────────────────────────────────────────────────
 # 跨服务跟踪 ACME 端口占用，避免多个服务争抢 port 80/443
 ACME_HTTP_CLAIMED="no"   # 是否已有服务认领 HTTP Challenge (port 80)
@@ -648,8 +668,9 @@ scan_installed_proxies() {
   if [ -n "$st" ] || [ -x /data/anytls/anytls-server ]; then
     [ -z "$st" ] && st="已安装"
     port=""
-    [ -f /data/anytls/anytls.env ] && \
-      port=$(grep -oP '^ANYTLS_PORT=\K[0-9]+' /data/anytls/anytls.env 2>/dev/null | head -1 || true)
+    [ -f /data/anytls/config.yaml ] && \
+      port=$(sed -n 's/^listen:.*:\([0-9]\{1,\}\)[[:space:]]*$/\1/p' \
+             /data/anytls/config.yaml 2>/dev/null | head -1 || true)
     _scan_row "AnyTLS" "$st" "AnyTLS/TCP" "${port:+:${port}/TCP}" "自签证书"
   else
     _scan_row "AnyTLS" "未安装" "AnyTLS/TCP" "" ""
@@ -902,7 +923,7 @@ if [[ "$INSTALL_CADDY" == "yes" ]]; then
     INSTALL_CADDY="no"
   else
     prompt          CADDY_DOMAIN "Caddy 域名（A/AAAA 记录指向此 VPS）"
-    ask_port        CADDY_PORT   "Caddy HTTPS 端口" "8443" "tcp"
+    ask_port        CADDY_PORT   "Caddy HTTPS 端口" "$(random_free_port 8443 tcp)" "tcp"
     prompt_with_random_default CADDY_USER "基本认证用户名（回车随机生成）" 10
     prompt_with_random_default CADDY_PASS "基本认证密码（回车随机生成）"   20
 
@@ -1008,14 +1029,15 @@ if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
     INSTALL_HYSTERIA="no"
   else
     prompt          H2_DOMAIN   "Hysteria 域名（A/AAAA 记录指向此 VPS）"
-    ask_port        H2_PORT     "Hysteria 监听端口" "443" "udp"
+    ask_port        H2_PORT     "Hysteria 主端口" "443" "udp"
+    ask_port        H2_PORT2    "Hysteria 备用端口" "8443" "udp"
     prompt_with_random_default H2_PASSWORD "Hysteria 密码（回车随机生成）" 20
     prompt_optional H2_EMAIL    "ACME 注册邮箱（可留空）"
 
     echo ""
     echo "  正在检查域名解析..."
     check_domain_points "$H2_DOMAIN" || \
-      { confirm "域名未指向本机，仍然继续安装 Hysteria2" "y" || { INSTALL_HYSTERIA="no"; _unclaim_port "$H2_PORT" "udp"; echo "  已跳过。"; }; }
+      { confirm "域名未指向本机，仍然继续安装 Hysteria2" "y" || { INSTALL_HYSTERIA="no"; _unclaim_port "$H2_PORT" "udp"; _unclaim_port "$H2_PORT2" "udp"; echo "  已跳过。"; }; }
 
     if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
       mkdir -p /data/hysteria
@@ -1041,7 +1063,9 @@ if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
       fi
 
       {
-        echo "listen: :${H2_PORT}"
+        # Hysteria 的多端口：只 bind 第一个端口，其余由它自动下发
+        # nftables/iptables UDP 重定向规则转发过来（需系统装有其一）
+        echo "listen: :${H2_PORT},${H2_PORT2}"
         echo ""
         case "$h2_acme_method" in
           caddy-cert)
@@ -1095,7 +1119,7 @@ if [[ "$INSTALL_HYSTERIA" == "yes" ]]; then
       h2_uri="hysteria2://${H2_PASSWORD}@${H2_DOMAIN}:${H2_PORT}#VPS-Hysteria2"
       {
         echo "[Hysteria2]"
-        echo "Server  : ${H2_DOMAIN}:${H2_PORT}"
+        echo "Server  : ${H2_DOMAIN}:${H2_PORT}（备用端口 ${H2_PORT2}，配置相同）"
         echo "Password: ${H2_PASSWORD}"
         echo "ACME    : ${h2_acme_method}"
         echo ""
@@ -1125,7 +1149,7 @@ if [[ "$INSTALL_TROJAN" == "yes" ]]; then
     INSTALL_TROJAN="no"
   else
     prompt          TROJAN_DOMAIN "Trojan 域名（A/AAAA 记录指向此 VPS）"
-    ask_port        TROJAN_PORT   "Trojan 监听端口" "8080" "tcp"
+    ask_port        TROJAN_PORT   "Trojan 监听端口" "$(random_free_port 8080 tcp)" "tcp"
     prompt_with_random_default TROJAN_PASS  "Trojan 密码（回车随机生成）" 20
     prompt_optional TROJAN_EMAIL  "ACME 注册邮箱（可留空）"
 
@@ -1261,7 +1285,8 @@ if [[ "$INSTALL_XRAY" == "yes" ]]; then
     echo "  跳过 VLESS Reality 安装（保留现有）。"
     INSTALL_XRAY="no"
   else
-    ask_port        XRAY_PORT  "VLESS Reality 监听端口" "443" "tcp"
+    ask_port        XRAY_PORT  "VLESS Reality 主端口" "443" "tcp"
+    ask_port        XRAY_PORT2 "VLESS Reality 备用端口" "8443" "tcp"
     prompt_optional XRAY_SNI   "SNI（目标站点域名）" "www.samsung.com"
     prompt_optional XRAY_DEST  "回落目标（SNI:port）" "${XRAY_SNI:-www.samsung.com}:443"
 
@@ -1339,6 +1364,36 @@ if [[ "$INSTALL_XRAY" == "yes" ]]; then
           ]
         }
       }
+    },
+    {
+      "listen": "0.0.0.0",
+      "port": ${XRAY_PORT2},
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "${XRAY_UUID}",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "${XRAY_DEST}",
+          "xver": 0,
+          "serverNames": [
+            "${XRAY_SNI}"
+          ],
+          "privateKey": "${XRAY_PRIVATE_KEY}",
+          "shortIds": [
+            "${XRAY_SHORT_ID}"
+          ]
+        }
+      }
     }
   ],
   "outbounds": [
@@ -1359,9 +1414,11 @@ EOF
                         echo "YOUR_VPS_IP")"
       xray_uri="vless://${XRAY_UUID}@${xray_public_ip}:${XRAY_PORT}?security=reality&flow=xtls-rprx-vision&sni=${XRAY_SNI}&pbk=${XRAY_PUBLIC_KEY}&sid=${XRAY_SHORT_ID}&fp=chrome&type=tcp#VPS-Reality"
 
+      xray_uri2="vless://${XRAY_UUID}@${xray_public_ip}:${XRAY_PORT2}?security=reality&flow=xtls-rprx-vision&sni=${XRAY_SNI}&pbk=${XRAY_PUBLIC_KEY}&sid=${XRAY_SHORT_ID}&fp=chrome&type=tcp#VPS-Reality-alt"
+
       {
         echo "[VLESS Reality (Xray)]"
-        echo "Port      : ${XRAY_PORT}/TCP"
+        echo "Port      : ${XRAY_PORT}/TCP（主）  ${XRAY_PORT2}/TCP（备用）"
         echo "UUID      : ${XRAY_UUID}"
         echo "PublicKey : ${XRAY_PUBLIC_KEY}"
         echo "ShortId   : ${XRAY_SHORT_ID}"
@@ -1370,8 +1427,22 @@ EOF
         echo "Network   : tcp  Security: reality"
         echo ""
         echo "URI: ${xray_uri}"
+        echo ""
+        echo "备用端口 URI（两个端口配置相同，主端口被封时换这个）:"
+        echo "${xray_uri2}"
+        echo ""
+        echo "Shadowrocket 手动添加时（直接导入上面的 URI 则无需手填）:"
+        echo "  类型      选 VLESS —— 不是 VMess，也不是 Trojan"
+        echo "  流控      xtls-rprx-vision —— 必须填，留空会连不上"
+        echo "  传输      TCP        TLS/安全  选 Reality"
+        echo "  Peer 名称 ${XRAY_SNI}"
+        echo "  公钥      ${XRAY_PUBLIC_KEY}"
+        echo "  ShortId   ${XRAY_SHORT_ID}"
+        echo "  指纹      chrome"
       } > "$CONN_DIR/xray.txt"
       _show_uri "VLESS Reality" "$xray_uri" "$CONN_DIR/xray-qr.png"
+      echo "  提示：Shadowrocket 里 Xray 对应的类型是「VLESS」，"
+      echo "        流控必须填 xtls-rprx-vision，留空会连不上。"
     fi
   fi
 fi
@@ -1394,7 +1465,7 @@ if [[ "$INSTALL_ANYTLS" == "yes" ]]; then
     echo "  跳过 AnyTLS 安装（保留现有）。"
     INSTALL_ANYTLS="no"
   else
-    ask_port ANYTLS_PORT "AnyTLS 监听端口" "8443" "tcp"
+    ask_port ANYTLS_PORT "AnyTLS 监听端口" "8080" "tcp"
     prompt_with_random_default ANYTLS_PASS "AnyTLS 密码（回车随机生成）" 20
 
     mkdir -p /data/anytls
@@ -1402,16 +1473,18 @@ if [[ "$INSTALL_ANYTLS" == "yes" ]]; then
     if [[ "$ANYTLS_ACTION" == "overwrite" || "$ANYTLS_ACTION" == "install" ]]; then
       cp -p "$ANYTLS_LOCAL_BIN" /data/anytls/anytls-server
       chmod +x /data/anytls/anytls-server
+      cp "${ROOT_DIR}/anytls/run.sh" /data/anytls/run.sh
+      chmod +x /data/anytls/run.sh
       cp "${ROOT_DIR}/anytls/anytls.service" /etc/systemd/system/anytls.service
     fi
 
-    # anytls-server 无配置文件，端口与密码通过 EnvironmentFile 传给 systemd
+    # anytls-server 只接受命令行参数，run.sh 会读取此文件后再拉起进程
     umask 077
-    cat > /data/anytls/anytls.env <<EOF
-ANYTLS_PORT=${ANYTLS_PORT}
-ANYTLS_PASSWORD=${ANYTLS_PASS}
+    cat > /data/anytls/config.yaml <<EOF
+listen: 0.0.0.0:${ANYTLS_PORT}
+password: ${ANYTLS_PASS}
 EOF
-    chmod 600 /data/anytls/anytls.env
+    chmod 600 /data/anytls/config.yaml
 
     anytls_public_ip="$(curl -fsSL --connect-timeout 5 https://api.ipify.org 2>/dev/null || \
                         curl -fsSL --connect-timeout 5 https://ifconfig.me 2>/dev/null || \
@@ -1510,7 +1583,7 @@ if [[ "$INSTALL_MIERU" == "yes" ]]; then
     echo "  跳过 Mieru 安装（保留现有）。"
     INSTALL_MIERU="no"
   else
-    ask_port        MIERU_PORT     "Mieru 监听端口" "443" "tcp"
+    ask_port        MIERU_PORT     "Mieru 监听端口" "$(random_free_port 443 tcp)" "tcp"
     prompt_with_random_default MIERU_USER "Mieru 用户名（回车随机生成）" 10
     prompt_with_random_default MIERU_PASS "Mieru 密码（回车随机生成）"   20
 
@@ -1590,6 +1663,65 @@ _start_service() {
 [[ "$INSTALL_ANYTLS"   == "yes" ]] && _start_service "anytls"   "AnyTLS"
 [[ "$INSTALL_H2CLIENT" == "yes" ]] && _start_service "h2client" "H2 Client"
 [[ "$INSTALL_MIERU"    == "yes" ]] && _start_service "mita"     "Mieru (mita)"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 每日自动重启（cron）
+# ══════════════════════════════════════════════════════════════════════════════
+CRON_FILE="/etc/cron.d/vps-allineone-restart"
+
+# 收集本机上由本脚本管理、且确实已安装的服务
+cron_services=()
+for _svc in xray h2server anytls caddy trojan mita h2client; do
+  service_installed "$_svc" && cron_services+=("$_svc")
+done
+
+if [[ ${#cron_services[@]} -gt 0 ]]; then
+  echo ""
+  echo "── 每日自动重启 ──"
+  echo "  给已安装的服务加一条 cron，每天东八区凌晨 3:00 起依次重启，"
+  echo "  多个服务之间间隔 10 分钟，避免同时断流。"
+  echo "  涉及服务：${cron_services[*]}"
+  echo ""
+  if confirm "配置每日自动重启" "y"; then
+    # cron 按系统本地时区执行，而本机时区未必是东八区，
+    # 因此把「东八区 03:00」= UTC 19:00 换算成本机时间。
+    _tz="$(date +%z)"                       # 形如 +0800 / -0500 / +0000
+    _off=$(( 10#${_tz:1:2} * 60 + 10#${_tz:3:2} ))
+    [[ "${_tz:0:1}" == "-" ]] && _off=$(( -_off ))
+    _start=$(( (1140 + _off) % 1440 ))      # 1140 = UTC 19:00
+    (( _start < 0 )) && _start=$(( _start + 1440 ))
+
+    {
+      echo "# 由 vps-allineone install.sh 生成：代理服务每日自动重启"
+      echo "# 目标时间为东八区凌晨 3:00 起，每个服务间隔 10 分钟。"
+      echo "# 本机时区 $(date +%Z)（UTC${_tz}），下列为换算后的本机时间。"
+      echo "SHELL=/bin/sh"
+      echo "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin"
+      echo ""
+      _i=0
+      for _svc in "${cron_services[@]}"; do
+        _at=$(( (_start + _i * 10) % 1440 ))
+        printf '%d %d * * * root /usr/bin/systemctl restart %s\n' \
+          "$(( _at % 60 ))" "$(( _at / 60 ))" "$_svc"
+        _i=$(( _i + 1 ))
+      done
+    } > "$CRON_FILE"
+    chmod 644 "$CRON_FILE"
+    chown root:root "$CRON_FILE"
+
+    echo "  已写入 ${CRON_FILE}："
+    _i=0
+    for _svc in "${cron_services[@]}"; do
+      _at=$(( (_start + _i * 10) % 1440 ))
+      _cst=$(( (180 + _i * 10) % 1440 ))
+      printf '    %-9s 本机 %02d:%02d  （东八区 %02d:%02d）\n' \
+        "$_svc" "$(( _at / 60 ))" "$(( _at % 60 ))" "$(( _cst / 60 ))" "$(( _cst % 60 ))"
+      _i=$(( _i + 1 ))
+    done
+  else
+    echo "  已跳过（可稍后手动编辑 ${CRON_FILE}）。"
+  fi
+fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 完成汇总

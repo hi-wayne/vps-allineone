@@ -43,9 +43,13 @@ IP: [服务器 IP]   用户: root   密码: [root 密码]   系统: Debian 12
 
 | 优先级 | 协议 | 传输 | 默认端口 | 要域名吗 | 什么时候用 |
 |---|---|---|---|---|---|
-| **1** | **VLESS Reality (Xray)** | TCP | 443 | **不要** | **默认主力。** 抗封锁最强，伪装成访问真实大站 |
-| **2** | **Hysteria2** | QUIC/**UDP** | 443 | 要 | **追求速度时用。** 线路丢包时远快于 TCP |
-| **3** | **AnyTLS** | TCP | 8443 | 不要 | 备用。连接复用、延迟低，自签证书 |
+| **1** | **VLESS Reality (Xray)** | TCP | **443 + 8443** | **不要** | **默认主力。** 抗封锁最强，伪装成访问真实大站 |
+| **2** | **Hysteria2** | QUIC/**UDP** | **443 + 8443** | 要 | **追求速度时用。** 线路丢包时远快于 TCP |
+| **3** | **AnyTLS** | TCP | 8080 | 不要 | 备用。连接复用、延迟低，自签证书 |
+
+前两个都默认开**主 + 备两个端口**，配置完全相同，主端口被封时客户端改个端口号就能继续用。Xray 是两个独立 inbound；Hysteria 用它原生的多端口能力（只 bind 主端口，备用端口由它自动下发 nftables/iptables 重定向规则转发过来，所以 `ss` 里只看得到主端口，属正常）。
+
+其余组件（Caddy / Trojan / Mieru）的默认端口会从 `443 / 2053 / 2083 / 2087 / 2096 / 8443` 里**随机挑一个当前空闲的**，避开上面三个已占用的，你也可以自己输。
 
 ### 没有域名 → 只装 Xray，这是默认路径
 
@@ -60,9 +64,9 @@ Hysteria2 走 **QUIC/UDP**，是这三个里的性能选手：线路丢包的时
 关键点：**Reality 和 Hysteria2 可以共用 443 端口**——一个占 TCP、一个占 UDP，互不冲突。所以推荐组合是：
 
 ```
-443/TCP   VLESS Reality   抗封锁，保底能连
-443/UDP   Hysteria2       速度快，日常主力
-8443/TCP  AnyTLS          备用
+443/TCP  + 8443/TCP   VLESS Reality   抗封锁，保底能连
+443/UDP  + 8443/UDP   Hysteria2       速度快，日常主力
+8080/TCP              AnyTLS          备用
 ```
 
 安装时第一个问题答 **y**，然后确认「安装推荐组合」即可。
@@ -94,6 +98,9 @@ sudo ./install.sh
 - 智能端口检测，能认出占用端口的进程和协议；TCP/UDP 分别记账，同号不误判
 - 重复执行安全，已装组件可选**覆盖 / 仅更新配置 / 跳过**
 - 除上面三个主推协议外，还可选装 Caddy (NaiveProxy)、Trojan、Mieru、H2 Client
+- 最后一步会问是否配置**每日自动重启**（默认是）：写一条 `/etc/cron.d/vps-allineone-restart`，
+  每天东八区凌晨 3:00 起依次重启各服务，间隔 10 分钟错开。脚本会按本机时区自动换算，
+  机器不在东八区也不用管
 
 装完后所有连接信息（含二维码）写在 **`/data/connection-info/`**：
 
@@ -103,7 +110,15 @@ hysteria2.txt / hysteria2-qr.png Hysteria2
 anytls.txt / anytls-qr.png       AnyTLS
 ```
 
-手机端把 `URI:` 那行复制进 **Shadowrocket**（或扫二维码）即可导入。AnyTLS 需要 Shadowrocket 2.2.65+，且**必须勾选 Allow Insecure**（服务端用的是自签证书）。
+手机端把 `URI:` 那行复制进 **Shadowrocket**（或扫二维码）即可导入，各字段会自动填好。
+
+**如果要在 Shadowrocket 里手动添加节点**，这两点最容易出错：
+
+| 协议 | 类型选什么 | 必须注意 |
+|---|---|---|
+| VLESS Reality (Xray) | 选 **VLESS**（不是 VMess、不是 Trojan） | **流控填 `xtls-rprx-vision`，留空会连不上**；TLS 选 Reality，指纹 chrome，Peer 名称/公钥/ShortId 照 `xray.txt` 填 |
+| AnyTLS | 选 **AnyTLS**（需 2.2.65+） | **必须勾选 Allow Insecure**，服务端是自签证书 |
+| Hysteria2 | 选 **Hysteria2** | 不要勾 Allow Insecure，证书是 Let's Encrypt 签的 |
 
 ---
 
@@ -148,6 +163,8 @@ caddy/ trojan/ mieru/ h2client/            其余可选组件
    - **有** → 安装推荐组合 VLESS Reality + Hysteria2 + AnyTLS。装之前先确认域名 A 记录已指向本机 IP，否则 Hysteria2 申请证书会失败。
 3. **执行 `sudo ./install.sh`**，这是交互式脚本，带默认值的提问一律用默认值。
 4. **收尾**：确认服务已启动，把 `/data/connection-info/` 下的内容交给用户，并逐栏说明 Shadowrocket 怎么填。
+   说明时务必点明：Xray 在 Shadowrocket 里对应的类型是 **VLESS**，**流控必须填 `xtls-rprx-vision`**
+   （留空是最常见的连不上原因）；AnyTLS 必须勾 Allow Insecure，Hysteria2 则不要勾。
 5. 建议用户把 root 密码改成新的强密码。
 
 **不要做的事**
