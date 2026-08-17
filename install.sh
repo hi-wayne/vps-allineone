@@ -156,6 +156,7 @@ _guess_proto() {
     sing-box)       echo "sing-box（多协议代理）" ;;
     ss-server|shadowsocks*) echo "Shadowsocks" ;;
     mita)           echo "Mieru (mita 服务端)" ;;
+    anytls-server)  echo "AnyTLS" ;;
     frps|frpc)      echo "FRP 内网穿透" ;;
     docker-proxy)   echo "Docker 端口映射" ;;
     openvpn)        echo "OpenVPN" ;;
@@ -642,6 +643,18 @@ scan_installed_proxies() {
     _scan_row "Mieru (mita)" "未安装" "Mieru/TCP" "" ""
   fi
 
+  # ── AnyTLS ──────────────────────────────────────────────────────────────
+  st="$(_scan_svc_status anytls)"
+  if [ -n "$st" ] || [ -x /data/anytls/anytls-server ]; then
+    [ -z "$st" ] && st="已安装"
+    port=""
+    [ -f /data/anytls/anytls.env ] && \
+      port=$(grep -oP '^ANYTLS_PORT=\K[0-9]+' /data/anytls/anytls.env 2>/dev/null | head -1 || true)
+    _scan_row "AnyTLS" "$st" "AnyTLS/TCP" "${port:+:${port}/TCP}" "自签证书"
+  else
+    _scan_row "AnyTLS" "未安装" "AnyTLS/TCP" "" ""
+  fi
+
   # ── H2 Client ───────────────────────────────────────────────────────────
   st="$(_scan_svc_status h2client)"
   if [ -n "$st" ] || [ -x /data/h2client/h2 ] || [ -f /data/h2client/client.yaml ]; then
@@ -708,6 +721,7 @@ CADDY_LOCAL_BIN="${ROOT_DIR}/caddy/caddy-linux-${ARCH}"
 H2_LOCAL_BIN="${ROOT_DIR}/hysteria/hysteria-linux-${ARCH}"
 TROJAN_LOCAL_BIN="${ROOT_DIR}/trojan/trojan-go-linux-${ARCH}"
 XRAY_LOCAL_BIN="${ROOT_DIR}/xray/xray-linux-${ARCH}"
+ANYTLS_LOCAL_BIN="${ROOT_DIR}/anytls/anytls-server-linux-${ARCH}"
 H2C_LOCAL_BIN="${ROOT_DIR}/h2client/h2-linux-${ARCH}"
 MIERU_LOCAL_BIN="${ROOT_DIR}/mieru/mita-linux-${ARCH}"
 
@@ -732,6 +746,8 @@ echo "组件可用性检测："
                               || echo "  [缺包] Trojan              — 未找到 trojan-go-linux-${ARCH}"
 [[ -f "$XRAY_LOCAL_BIN"   ]] && echo "  [可用] VLESS Reality (Xray)  xray-linux-${ARCH}" \
                               || echo "  [缺包] VLESS Reality (Xray) — 未找到 xray-linux-${ARCH}"
+[[ -f "$ANYTLS_LOCAL_BIN" ]] && echo "  [可用] AnyTLS                anytls-server-linux-${ARCH}" \
+                              || echo "  [缺包] AnyTLS              — 未找到 anytls-server-linux-${ARCH}"
 [[ -f "$H2C_LOCAL_BIN"    ]] && echo "  [可用] H2 Client             h2-linux-${ARCH}" \
                               || echo "  [缺包] H2 Client           — 未找到 h2-linux-${ARCH}"
 [[ -f "$MIERU_LOCAL_BIN"  ]] && echo "  [可用] Mieru (mita)          mita-linux-${ARCH}" \
@@ -743,6 +759,7 @@ INSTALL_CADDY="no"
 INSTALL_HYSTERIA="no"
 INSTALL_TROJAN="no"
 INSTALL_XRAY="no"
+INSTALL_ANYTLS="no"
 INSTALL_H2CLIENT="no"
 INSTALL_MIERU="no"
 
@@ -753,30 +770,44 @@ echo "  域名指的是 example.com 这种网址。Caddy / Hysteria2 / Trojan �
 echo "  TLS 证书；VLESS Reality 不需要，直接用本机 IP 即可。"
 echo ""
 if ! confirm "你有自己的域名（且已把 A 记录指向本机）" "n"; then
+  # 无域名 → 只能选无证书协议：VLESS Reality 为主，AnyTLS 为辅
   if [[ -f "$XRAY_LOCAL_BIN" ]]; then
     ASK_COMPONENTS="no"
     INSTALL_XRAY="yes"
     echo ""
-    echo "  没有域名 → 只安装 VLESS Reality (Xray)，其余组件全部跳过。"
-    echo "  它无需域名和证书，客户端填本机 IP 即可连接。"
+    echo "  没有域名 → 安装无需证书的协议，客户端填本机 IP 即可连接。"
+    echo "    VLESS Reality  TCP 443   主力，抗封锁最强，伪装成访问真实站点"
+    if [[ -f "$ANYTLS_LOCAL_BIN" ]]; then
+      echo "    AnyTLS         TCP 8443  备用，连接复用、延迟低，自签证书"
+      echo ""
+      if confirm "同时安装 AnyTLS 作为备用（推荐）" "y"; then
+        INSTALL_ANYTLS="yes"
+      fi
+    fi
+    echo "  其余组件全部跳过。"
   else
     echo ""
     echo "  没有域名，但缺少 xray-linux-${ARCH}，无法自动选择，改为手动选择组件。"
     echo "  （请先在有网络的机器上运行 download-bins.sh）"
   fi
 else
-  # 有域名 → 优先推荐 Hysteria2 + VLESS Reality 组合
+  # 有域名 → 推荐 VLESS Reality + Hysteria2 + AnyTLS 组合
   if [[ -f "$H2_LOCAL_BIN" && -f "$XRAY_LOCAL_BIN" ]]; then
     echo ""
-    echo "  推荐组合：Hysteria2 + VLESS Reality"
-    echo "    Hysteria2      QUIC/UDP  日常主力，线路丢包时速度远好于 TCP 协议"
-    echo "    VLESS Reality  TCP       备用，抗封锁最强，无需证书"
-    echo "  两者可同用 443（一个占 UDP、一个占 TCP），互不冲突。"
+    _rec_suffix=""
+    [[ -f "$ANYTLS_LOCAL_BIN" ]] && _rec_suffix=" + AnyTLS"
+    echo "  推荐组合：VLESS Reality + Hysteria2${_rec_suffix}"
+    echo "    VLESS Reality  TCP 443   主力，抗封锁最强，无需证书"
+    echo "    Hysteria2      UDP 443   线路丢包时速度远好于 TCP 协议，需要证书"
+    [[ -f "$ANYTLS_LOCAL_BIN" ]] && \
+    echo "    AnyTLS         TCP 8443  备用，连接复用、延迟低，无需证书"
+    echo "  Reality 与 Hysteria2 可同用 443（一个占 TCP、一个占 UDP），互不冲突。"
     echo ""
-    if confirm "安装推荐组合（Hysteria2 + VLESS Reality）" "y"; then
+    if confirm "安装推荐组合" "y"; then
       ASK_COMPONENTS="no"
-      INSTALL_HYSTERIA="yes"
       INSTALL_XRAY="yes"
+      INSTALL_HYSTERIA="yes"
+      [[ -f "$ANYTLS_LOCAL_BIN" ]] && INSTALL_ANYTLS="yes"
       echo "  已选择推荐组合，其余组件全部跳过。"
     fi
   fi
@@ -789,19 +820,20 @@ echo ""
 echo "  协议说明："
 printf "  %-28s %-12s %-8s %-10s %s\n" "组件" "传输协议" "默认端口" "需要域名/证书" "备注"
 printf "  %s\n" "───────────────────────────────────────────────────────────────────────────"
-printf "  %-28s %-12s %-8s %-10s %s\n" "Caddy (NaiveProxy)"    "HTTPS/TCP"  "8443"   "✔ 需要"   "ACME 自动申请证书"
-printf "  %-28s %-12s %-8s %-10s %s\n" "Hysteria2"             "QUIC/UDP"   "443"    "✔ 需要"   "ACME 自动申请证书"
-printf "  %-28s %-12s %-8s %-10s %s\n" "Trojan"                "TLS/TCP"    "8080"   "✔ 需要"   "ACME 自动申请证书"
 printf "  %-28s %-12s %-8s %-10s %s\n" "VLESS Reality (Xray)"  "TCP"        "443"    "✘ 不需要" "自生成密钥对，伪装真实站点"
+printf "  %-28s %-12s %-8s %-10s %s\n" "Hysteria2"             "QUIC/UDP"   "443"    "✔ 需要"   "ACME 自动申请证书，可与上者同号"
+printf "  %-28s %-12s %-8s %-10s %s\n" "AnyTLS"                "TLS/TCP"    "8443"   "✘ 不需要" "自签证书，连接复用降低延迟"
+printf "  %-28s %-12s %-8s %-10s %s\n" "Caddy (NaiveProxy)"    "HTTPS/TCP"  "8443"   "✔ 需要"   "ACME 自动申请证书"
+printf "  %-28s %-12s %-8s %-10s %s\n" "Trojan"                "TLS/TCP"    "8080"   "✔ 需要"   "ACME 自动申请证书"
 printf "  %-28s %-12s %-8s %-10s %s\n" "Mieru (mita)"          "TCP"        "443"    "✘ 不需要" "协议自带加密，直接用 IP"
 printf "  %-28s %-12s %-8s %-10s %s\n" "H2 Client"             "QUIC/UDP"   "—"      "—"        "本地 Hysteria2 客户端"
 printf "  %s\n" "───────────────────────────────────────────────────────────────────────────"
 echo ""
 
-if [[ -f "$CADDY_LOCAL_BIN"  ]]; then
-  if confirm "安装 Caddy（NaiveProxy，需要域名 + ACME 证书）" "n"; then INSTALL_CADDY="yes"; fi
+if [[ -f "$XRAY_LOCAL_BIN" ]]; then
+  if confirm "安装 VLESS Reality（Xray，无需域名/证书）" "y"; then INSTALL_XRAY="yes"; fi
 else
-  echo "  跳过 Caddy（缺少 caddy-linux-${ARCH}，请先运行 download-bins.sh）"
+  echo "  跳过 VLESS Reality（缺少 xray-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
 if [[ -f "$H2_LOCAL_BIN" ]]; then
@@ -810,16 +842,22 @@ else
   echo "  跳过 Hysteria2（缺少 hysteria-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
+if [[ -f "$ANYTLS_LOCAL_BIN" ]]; then
+  if confirm "安装 AnyTLS（TLS 代理，无需域名/证书）" "y"; then INSTALL_ANYTLS="yes"; fi
+else
+  echo "  跳过 AnyTLS（缺少 anytls-server-linux-${ARCH}，请先运行 download-bins.sh）"
+fi
+
+if [[ -f "$CADDY_LOCAL_BIN"  ]]; then
+  if confirm "安装 Caddy（NaiveProxy，需要域名 + ACME 证书）" "n"; then INSTALL_CADDY="yes"; fi
+else
+  echo "  跳过 Caddy（缺少 caddy-linux-${ARCH}，请先运行 download-bins.sh）"
+fi
+
 if [[ -f "$TROJAN_LOCAL_BIN" ]]; then
   if confirm "安装 Trojan（TLS 代理，需要域名 + ACME 证书）" "n"; then INSTALL_TROJAN="yes"; fi
 else
   echo "  跳过 Trojan（缺少 trojan-go-linux-${ARCH}，请先运行 download-bins.sh）"
-fi
-
-if [[ -f "$XRAY_LOCAL_BIN" ]]; then
-  if confirm "安装 VLESS Reality（Xray，无需域名/证书）" "y"; then INSTALL_XRAY="yes"; fi
-else
-  echo "  跳过 VLESS Reality（缺少 xray-linux-${ARCH}，请先运行 download-bins.sh）"
 fi
 
 if [[ -f "$H2C_LOCAL_BIN" ]]; then
@@ -835,7 +873,7 @@ else
 fi
 fi   # ASK_COMPONENTS
 
-if [[ "${INSTALL_CADDY}${INSTALL_HYSTERIA}${INSTALL_TROJAN}${INSTALL_XRAY}${INSTALL_H2CLIENT}${INSTALL_MIERU}" == "nononononono" ]]; then
+if [[ "${INSTALL_CADDY}${INSTALL_HYSTERIA}${INSTALL_TROJAN}${INSTALL_XRAY}${INSTALL_ANYTLS}${INSTALL_H2CLIENT}${INSTALL_MIERU}" != *yes* ]]; then
   echo ""
   echo "未选择任何组件，退出。"
   exit 0
@@ -1339,6 +1377,61 @@ EOF
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
+# AnyTLS
+# ══════════════════════════════════════════════════════════════════════════════
+if [[ "$INSTALL_ANYTLS" == "yes" ]]; then
+  echo ""
+  echo "── AnyTLS 配置 ──"
+fi
+
+if [[ "$INSTALL_ANYTLS" == "yes" ]]; then
+  ANYTLS_ACTION="install"
+  if service_installed "anytls"; then
+    ANYTLS_ACTION="$(ask_reinstall "AnyTLS" "anytls")"
+  fi
+
+  if [[ "$ANYTLS_ACTION" == "skip" ]]; then
+    echo "  跳过 AnyTLS 安装（保留现有）。"
+    INSTALL_ANYTLS="no"
+  else
+    ask_port ANYTLS_PORT "AnyTLS 监听端口" "8443" "tcp"
+    prompt_with_random_default ANYTLS_PASS "AnyTLS 密码（回车随机生成）" 20
+
+    mkdir -p /data/anytls
+
+    if [[ "$ANYTLS_ACTION" == "overwrite" || "$ANYTLS_ACTION" == "install" ]]; then
+      cp -p "$ANYTLS_LOCAL_BIN" /data/anytls/anytls-server
+      chmod +x /data/anytls/anytls-server
+      cp "${ROOT_DIR}/anytls/anytls.service" /etc/systemd/system/anytls.service
+    fi
+
+    # anytls-server 无配置文件，端口与密码通过 EnvironmentFile 传给 systemd
+    umask 077
+    cat > /data/anytls/anytls.env <<EOF
+ANYTLS_PORT=${ANYTLS_PORT}
+ANYTLS_PASSWORD=${ANYTLS_PASS}
+EOF
+    chmod 600 /data/anytls/anytls.env
+
+    anytls_public_ip="$(curl -fsSL --connect-timeout 5 https://api.ipify.org 2>/dev/null || \
+                        curl -fsSL --connect-timeout 5 https://ifconfig.me 2>/dev/null || \
+                        echo "YOUR_VPS_IP")"
+    # 服务端使用自签证书，客户端必须跳过证书校验（insecure=1）
+    anytls_uri="anytls://${ANYTLS_PASS}@${anytls_public_ip}:${ANYTLS_PORT}/?insecure=1#VPS-AnyTLS"
+
+    {
+      echo "[AnyTLS]"
+      echo "Server  : ${anytls_public_ip}:${ANYTLS_PORT}/TCP"
+      echo "Password: ${ANYTLS_PASS}"
+      echo "TLS     : 自签证书，客户端需开启 Allow Insecure / 跳过证书验证"
+      echo ""
+      echo "URI: ${anytls_uri}"
+    } > "$CONN_DIR/anytls.txt"
+    _show_uri "AnyTLS" "$anytls_uri" "$CONN_DIR/anytls-qr.png"
+  fi
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 # H2 Client
 # ══════════════════════════════════════════════════════════════════════════════
 if [[ "$INSTALL_H2CLIENT" == "yes" ]]; then
@@ -1494,6 +1587,7 @@ _start_service() {
 [[ "$INSTALL_HYSTERIA" == "yes" ]] && _start_service "h2server" "Hysteria2"
 [[ "$INSTALL_TROJAN"   == "yes" ]] && _start_service "trojan"   "Trojan"
 [[ "$INSTALL_XRAY"     == "yes" ]] && _start_service "xray"     "VLESS Reality (Xray)"
+[[ "$INSTALL_ANYTLS"   == "yes" ]] && _start_service "anytls"   "AnyTLS"
 [[ "$INSTALL_H2CLIENT" == "yes" ]] && _start_service "h2client" "H2 Client"
 [[ "$INSTALL_MIERU"    == "yes" ]] && _start_service "mita"     "Mieru (mita)"
 
@@ -1506,6 +1600,7 @@ echo "══ 安装完成 ══"
 [[ "$INSTALL_HYSTERIA" == "yes" ]] && echo "  Hysteria2 状态      ：systemctl status h2server"
 [[ "$INSTALL_TROJAN"   == "yes" ]] && echo "  Trojan 状态         ：systemctl status trojan"
 [[ "$INSTALL_XRAY"     == "yes" ]] && echo "  VLESS Reality 状态  ：systemctl status xray"
+[[ "$INSTALL_ANYTLS"   == "yes" ]] && echo "  AnyTLS 状态         ：systemctl status anytls"
 [[ "$INSTALL_H2CLIENT" == "yes" ]] && echo "  H2 Client 状态      ：systemctl status h2client"
 [[ "$INSTALL_MIERU"    == "yes" ]] && echo "  Mieru (mita) 状态   ：systemctl status mita"
 echo ""

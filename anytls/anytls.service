@@ -1,0 +1,18 @@
+[Unit]
+Description=AnyTLS Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/data/anytls
+EnvironmentFile=/data/anytls/anytls.env
+ExecStart=/data/anytls/anytls-server -l 0.0.0.0:${ANYTLS_PORT} -p ${ANYTLS_PASSWORD}
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=1048576
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target

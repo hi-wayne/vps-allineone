@@ -11,6 +11,7 @@ HYSTERIA_VERSION="2.12.1"
 TROJAN_GO_VERSION="0.10.6"
 XRAY_VERSION="26.3.27"
 MIERU_VERSION="3.32.0"
+ANYTLS_VERSION="0.0.13"
 
 ARCHS=("amd64" "arm64")
 
@@ -97,6 +98,21 @@ for item in "${XRAY_ARCH_MAP[@]}"; do
   extract_zip_entry "$TMP_XRAY_ZIP" "xray" "$dest"
   chmod +x "$dest"
   rm -f "$TMP_XRAY_ZIP"
+done
+
+# ─── AnyTLS（anytls-go 服务端） ───────────────────────────────────────────────
+echo ""
+echo "=== 下载 AnyTLS v${ANYTLS_VERSION} ==="
+mkdir -p "${ROOT_DIR}/anytls"
+
+TMP_ANYTLS_ZIP="/tmp/anytls-download.zip"
+for arch in "${ARCHS[@]}"; do
+  dest="${ROOT_DIR}/anytls/anytls-server-linux-${arch}"
+  url="https://github.com/anytls/anytls-go/releases/download/v${ANYTLS_VERSION}/anytls_${ANYTLS_VERSION}_linux_${arch}.zip"
+  dl "$url" "$TMP_ANYTLS_ZIP" "AnyTLS ${arch} (zip)"
+  extract_zip_entry "$TMP_ANYTLS_ZIP" "anytls-server" "$dest"
+  chmod +x "$dest"
+  rm -f "$TMP_ANYTLS_ZIP"
 done
 
 # ─── H2 Client（Hysteria2 客户端复用同一二进制） ─────────────────────────────
@@ -192,7 +208,7 @@ echo ""
 echo "=== 下载完成 ==="
 echo ""
 echo "文件列表："
-for dir in caddy hysteria trojan xray h2client mieru; do
+for dir in caddy hysteria trojan xray anytls h2client mieru; do
   echo "  ${dir}/"
   find "${ROOT_DIR}/${dir}" -maxdepth 1 -type f \( -name "*linux*" -o -name "*.zip" \) \
     -exec ls -lh {} \; 2>/dev/null | awk '{printf "    %-12s %s\n", $5, $NF}' || true
